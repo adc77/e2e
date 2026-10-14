@@ -9,6 +9,7 @@ import { processSecrets, registerStaticSecrets } from './secrecy.ts';
 import { selectTarget } from './select-target.ts';
 import { openStandaloneHost } from './standalone.ts';
 import type { StepProgress, StepRecord } from './steps.ts';
+import { reserveHostedRun } from './public-ownership.ts';
 
 export interface OpenHostOptions {
   /** Config search directory, or project root of a config value; default `process.cwd()`. */
@@ -67,7 +68,23 @@ export interface E2ESession<Fixtures extends object = Record<string, unknown>> e
 export async function openHost<Fixtures extends object = Record<string, unknown>>(
   options: OpenHostOptions = {},
 ): Promise<E2EHost<Fixtures>> {
-  return redactOpening(() => openHostWorker<Fixtures>(options));
+  return redactOpening(async () => {
+    const release = reserveHostedRun();
+    try {
+      const host = await openHostWorker<Fixtures>(options);
+      const close = async (): Promise<readonly SerializedError[]> => {
+        try {
+          return await host.close();
+        } finally {
+          release();
+        }
+      };
+      return { ...host, close, [Symbol.asyncDispose]: () => dispose(close, 'host') };
+    } catch (cause) {
+      release();
+      throw cause;
+    }
+  });
 }
 
 /** Loads the selected target and opens its worker behind the redacted public boundary. */

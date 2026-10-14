@@ -65,6 +65,8 @@ import { createAgent } from '../../src/agent/public.ts';
 import { BLOCKABLE_CODES } from '../../src/index.ts';
 // @ts-expect-error list is e2e/runner: importing e2e does not load the runner
 import { list as listFromE2E } from '../../src/index.ts';
+// @ts-expect-error suite execution belongs to e2e/runner, not the test SDK
+import { run as runFromE2E } from '../../src/index.ts';
 // @ts-expect-error openHost is e2e/runner: importing e2e does not load the runner
 import { openHost as openHostFromE2E } from '../../src/index.ts';
 // @ts-expect-error host types belong to e2e/runner, not the test SDK
@@ -80,6 +82,10 @@ import {
   type ListedPair,
   type ListOptions,
   openHost,
+  run,
+  type RunEventSink,
+  type RunOptions,
+  type RunResult,
   type OpenHostOptions,
   type OpenSessionOptions,
   type SerializedError,
@@ -91,6 +97,7 @@ isDefinedTool;
 createAgent;
 BLOCKABLE_CODES;
 listFromE2E;
+runFromE2E;
 openHostFromE2E;
 removedOpenSession;
 declare const rootHost: E2EHostFromE2E;
@@ -249,7 +256,7 @@ declare const reporter: Reporter;
 ({
   name: 'upload',
   onEvent: (event: RunEvent) => void event.seq,
-  onRunFinished: async (run) => [{ label: 'Results', text: run.report.run.id }],
+  onRunFinished: async (finished) => [{ label: 'Results', text: finished.report.run.id }],
 }) satisfies Reporter;
 declare const runEvent: RunEvent;
 if (runEvent.type === 'step') {
@@ -632,6 +639,32 @@ describe('group', { tags: ['smoke'] }, () => {
 describe('async group', async () => {});
 // @ts-expect-error a suite hook sees suite fixtures only
 beforeAll((fixtures) => void fixtures.screen);
+
+// Suite execution accepts the same config and target names as list, plus progress and cancellation.
+declare const runResult: RunResult;
+void (run() satisfies Promise<RunResult>);
+void run({
+  cwd: '.', config: { targets }, files: ['tests/a.e2e.ts'], targets: ['web'],
+  interruptSignal: new AbortController().signal, quiet: true, retries: 1, maxDuration: 60_000, cacheDir: '.e2e/cache',
+  onEvent: (event) => { event satisfies RunEvent; },
+} satisfies RunOptions);
+void run({ config: 'e2e.config.ts' });
+void (runResult.exitCode satisfies RunExitCode);
+void (runResult.status satisfies RunStatus);
+void (runResult.report satisfies Report);
+void (runResult.reportPath satisfies string | undefined);
+void (runResult.aiTracePath satisfies string | undefined);
+void (((event: RunEvent) => { event.type; }) satisfies RunEventSink);
+// @ts-expect-error runtime configuration uses config, not the internal rawConfig name
+void run({ rawConfig: { targets } });
+// @ts-expect-error target selection uses targets, not the internal targetIds name
+void run({ targetIds: ['web'] });
+// @ts-expect-error internal registrations are not part of the public runner
+void run({ tests: {} });
+// @ts-expect-error outcomes do not expose live resolved configuration
+runResult.config;
+// @ts-expect-error progress callbacks consume RunEvent, not arbitrary strings
+void run({ onEvent: (_event: string) => {} });
 
 // `e2e/runner` lists a selection in process. `config` is a path or a config value; `grep` is RegExp[].
 void list({

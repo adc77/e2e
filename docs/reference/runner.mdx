@@ -1,12 +1,72 @@
 ---
 title: "e2e/runner"
-description: "List the tests a selection would run, or host e2e sessions in another test runner."
+description: "Run a test suite, list its selection, or host e2e sessions in another test runner."
 icon: "file-lines"
-"og:image": "https://e2e.tester.army/docs/images/og/reference/runner.png?v=a4c80234f3"
-"twitter:image": "https://e2e.tester.army/docs/images/og/reference/runner.png?v=a4c80234f3"
+"og:image": "https://e2e.tester.army/docs/images/og/reference/runner.png?v=98c298d3ed"
+"twitter:image": "https://e2e.tester.army/docs/images/og/reference/runner.png?v=98c298d3ed"
 ---
 
-`e2e/runner` runs e2e in process without `e2e run`. `list` returns a selection. `openHost` prepares a target for your test runner, and `host.openSession` opens a fresh attempt for each test. Importing `e2e` from a test file does not load the runner.
+`e2e/runner` runs a suite from code without invoking the CLI. `run` executes tests and returns their report; `list` returns a selection. `openHost` prepares a target for your test runner, and `host.openSession` opens a fresh attempt for each test. Importing `e2e` from a test file does not load the runner.
+
+## run
+
+`run(options?: RunOptions)` executes a complete suite and returns `Promise<RunResult>`. It finishes cleanup before resolving and never exits the caller's process.
+
+```ts
+import type { E2EConfig } from 'e2e';
+import { run } from 'e2e/runner';
+import { web } from '@e2e-dev/web';
+
+const config: E2EConfig = {
+  targets: [{ name: 'web', engine: web(), app: { url: 'http://localhost:3000' } }],
+};
+const controller = new AbortController();
+const result = await run({
+  config,
+  files: ['tests/signup.e2e.ts'],
+  interruptSignal: controller.signal,
+  onEvent(event) {
+    if (event.type === 'test-started') console.log(event.title);
+  },
+});
+
+console.log(result.status, result.report.run.summary);
+```
+
+### Execution options
+
+`run` accepts the [selection options](#options) that `list` accepts, including `cwd`, `config`, `files`, and `targets`. Omit `config` to discover `e2e.config.ts`; pass a path to load a file or an `E2EConfig` value to use runtime configuration.
+
+A config value can contain live engine, model, and executor instances, so it runs with one worker in the caller's process, regardless of `workers`. A file config supports the configured worker processes.
+
+| Option | Meaning |
+| --- | --- |
+| `onEvent` | Receives typed `RunEvent` progress, including `test-started`, `test-finished`, and `run-finished`. An event sink must not block; a throwing or rejecting sink is disabled without failing the run. |
+| `interruptSignal` | Call `controller.abort()` to interrupt the run and execute teardown. |
+| `forceSignal` | Abort to force worker disposal within the cleanup budget. |
+| `quiet` | Suppresses the list reporter. Defaults to `true`; `false` enables terminal progress. |
+| `headed`, `workers`, `retries` | Execution overrides for the matching CLI flags. |
+| `maxFailures`, `repeatEach`, `agent` | Failure limit, repeat count, and agent selection. |
+| `maxDuration` | Run budget in milliseconds, over the config's value. Expiry interrupts tests, runs teardown, and returns exit code `1` with `RUN_TIMEOUT`. |
+| `reporters`, `output` | Reporter selection and the results directory. |
+| `cacheDir` | Replay cache directory, over `E2E_CACHE_DIR` and the config's `cache.dir`. |
+| `noCache`, `strictCache`, `updateSnapshots` | Replay-cache and screenshot-baseline overrides. |
+| `trace`, `video`, `aiTrace`, `debug` | Recording modes, model-call tracing, and phase timings. |
+| `freshGraph` | Reloads the project's helper modules as well as its tests for this run. |
+
+### Completed result
+
+| Field | Meaning |
+| --- | --- |
+| `exitCode` | The CLI-equivalent exit code: `0`, `1`, `2`, `3`, `4`, or `130`. |
+| `status` | `passed`, `failed`, `blocked`, `error`, or `interrupted`. |
+| `report` | The complete report. Read `report.run.results`, `report.run.errors`, and `report.run.summary` for outcomes. |
+| `reportPath` | Absolute path to `report.json`, or `undefined` if it could not be written. |
+| `aiTracePath` | AI trace path, or `undefined` when no AI trace was written. |
+
+Test failures, config failures, and interruption resolve with their status and errors in the report. Overlapping public calls reject with `WORKER_PROTOCOL` before changing the active run. A suite also rejects while a host is opening or open; close every host before running a suite, and await a suite before opening a host.
+
+During the call, stdout and stderr use the CLI's secret redaction, including values split across writes. Config output is held until its secrets are known, or withheld if loading fails. Normal caller output resumes after cleanup. Async work left by a timed-out test keeps its redaction context if it prints later.
 
 ## list
 

@@ -8,12 +8,77 @@
  */
 
 import { StreamRedactor, type SecretLedger } from '../internal/redact.ts';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { realmSlot } from '../internal/realm-slot.ts';
 import type { ListReporterOutput } from '../report/list.ts';
 
 export type OutputStream = 'stdout' | 'stderr';
 
 /** Writes text to one stream of the terminal; the callback fires once the stream took it. Answers false while the stream is backed up, like `Writable.write`. */
 export type TerminalWrite = (text: string, callback?: () => void) => boolean;
+
+const BYTE_ENCODINGS: ReadonlySet<BufferEncoding> = new Set(['hex', 'base64', 'base64url']);
+
+interface OutputRouting {
+  readonly scope: AsyncLocalStorage<RunnerOutput>;
+  readonly terminal: Readonly<Record<OutputStream, TerminalWrite>>;
+  active: RunnerOutput | undefined;
+  process: RunnerOutput | undefined;
+}
+
+const routingSlot = realmSlot<OutputRouting>('e2e.process-output.routing.v1');
+
+/** One process dispatcher preserves redaction for asynchronous work that outlives a suite. */
+function routing(): OutputRouting {
+  const installed = routingSlot.get(process);
+  if (installed !== undefined) return installed;
+  const streams = { stdout: process.stdout, stderr: process.stderr } as const;
+  const original = { stdout: streams.stdout.write, stderr: streams.stderr.write };
+  const state: OutputRouting = {
+    scope: new AsyncLocalStorage(),
+    terminal: {
+      stdout: original.stdout.bind(streams.stdout) as TerminalWrite,
+      stderr: original.stderr.bind(streams.stderr) as TerminalWrite,
+    },
+    active: undefined,
+    process: undefined,
+  };
+  for (const name of ['stdout', 'stderr'] as const) {
+    const forward = original[name].bind(streams[name]) as (chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void) => boolean;
+    streams[name].write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void): boolean => {
+      const output = state.scope.getStore() ?? state.active ?? state.process;
+      if (output === undefined) return forward(chunk, encoding, callback);
+      const done = typeof encoding === 'function' ? encoding : callback;
+      const bytes = typeof chunk === 'string' && typeof encoding === 'string' && BYTE_ENCODINGS.has(encoding);
+      return output.write(name, bytes ? Buffer.from(chunk, encoding) : chunk, done);
+    }) as typeof process.stdout.write;
+  }
+  routingSlot.set(process, state);
+  return state;
+}
+
+/** The CLI owns every process write, including timers that print after a run ends. */
+export function claimProcessOutput(ledger: SecretLedger): RunnerOutput {
+  const state = routing();
+  state.process ??= new RunnerOutput(state.terminal, ledger);
+  return state.process;
+}
+
+/** Embedded runs own their async output; caller output resumes once cleanup ends. */
+export async function withProcessOutput<T>(ledger: SecretLedger, run: (output: RunnerOutput) => Promise<T>): Promise<T> {
+  const state = routing();
+  const output = new RunnerOutput(state.terminal, ledger);
+  state.active = output;
+  try {
+    return await state.scope.run(output, () => run(output));
+  } finally {
+    try {
+      output.end();
+    } finally {
+      if (state.active === output) state.active = undefined;
+    }
+  }
+}
 
 /** Where runner output goes instead of the terminal while the list reporter shows the run. */
 export interface OutputView {

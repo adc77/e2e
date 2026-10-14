@@ -35,13 +35,14 @@ describe('the built declarations', () => {
     }
   });
 
-  it('declares list from e2e/runner and not from e2e', () => {
+  it('declares suite execution and selection from e2e/runner and not from e2e', () => {
     const runner = declaration('runner.d.ts');
-    for (const name of ['list', 'ConfigurationError', 'isE2EError']) {
+    for (const name of ['list', 'run', 'RunOptions', 'RunResult', 'RunEventSink', 'ConfigurationError', 'isE2EError']) {
       expect(mentions(runner, name), name).toBe(true);
     }
-    expect(runner).not.toMatch(/\bdeclare function run\b/u);
-    expect(runner).not.toMatch(/export \{[^}]*\brun\b[^}]*\}/u);
+    expect(runner).toMatch(/export \{[^}]*\brunSuite as run\b[^}]*\}/u);
+    expect(declaration('run/public-run.d.ts')).toMatch(/export declare function runSuite\(options\?: SuiteRunOptions\): Promise<RunResult>/u);
+    expect(declaration('index.d.ts')).not.toMatch(/export \{[^}]*\brun\b[^}]*\}/u);
     expect(mentions(declaration('index.d.ts'), 'list')).toBe(false);
   });
 
