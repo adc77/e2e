@@ -103,18 +103,17 @@ test('waits', async ({ app, screen }) => {
     }
   });
 
-  it('uses public target names to select a runtime target', async () => {
+  it('executes the targets selected by the runtime config', async () => {
     const first = createFakeEngine();
     const second = createFakeEngine();
     const fixture = project({ 'tests/target.e2e.ts': `import { test } from 'e2e'; test('target', async () => {});` });
     const outcome = await run({
       cwd: fixture.dir,
       config: { targets: [first, second].map((fake, index) => ({ name: `target-${index}`, platform: 'test', engine: fake.engine, app: FAKE_APP })) },
-      targets: ['target-1'],
     });
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.report.run.summary.passed).toBe(1);
-    expect(first.events).toEqual([]);
+    expect(outcome.report.run.summary.passed).toBe(2);
+    expect(first.events).toContain('dispose');
     expect(second.events).toContain('dispose');
   });
 
@@ -122,10 +121,10 @@ test('waits', async ({ app, screen }) => {
     const fixture = project({ 'tests/empty.e2e.ts': `import { test } from 'e2e'; test('empty', async () => {});` });
     const fake = createFakeEngine();
     const config = { targets: [{ name: 'fake', platform: 'test', engine: fake.engine, app: FAKE_APP }] };
-    const invalid = await run({ cwd: fixture.dir, config, targets: ['missing'] });
+    const invalid = await run({ cwd: fixture.dir, config: { ...config, timeout: 0 } });
     expect(invalid.status).toBe('error');
     expect(invalid.exitCode).toBe(2);
-    expect(invalid.report.run.errors[0]?.code).toBe('UNKNOWN_TARGET');
+    expect(invalid.report.run.errors[0]?.code).toBe('INVALID_CONFIG');
     expect((await run({ cwd: fixture.dir, config })).exitCode).toBe(0);
   });
 
@@ -141,7 +140,7 @@ test('waits', async ({ app, screen }) => {
       },
     });
     expect(outcome.exitCode).toBe(0);
-    expect(await overlap).toMatchObject({ code: 'WORKER_PROTOCOL', message: 'a public run is already in progress; await it before starting another' });
+    expect(await overlap).toMatchObject({ code: 'RUNNER_BUSY', message: 'a public run is already in progress; await it before starting another' });
   });
 
   it('refuses a suite while a hosted session is live without changing its credentials', async () => {
@@ -152,10 +151,10 @@ test('waits', async ({ app, screen }) => {
     try {
       const session = await host.openSession({ name: 'existing session' });
       expect(credentials.user('admin').username).toBe('account-A');
-      await expect(run({ cwd: fixture.dir, config: { targets, credentials: { admin: { username: 'account-B', password: 'password-B' } } } })).rejects.toMatchObject({ code: 'WORKER_PROTOCOL' });
+      await expect(run({ cwd: fixture.dir, config: { targets, credentials: { admin: { username: 'account-B', password: 'password-B' } } } })).rejects.toMatchObject({ code: 'RUNNER_BUSY' });
       expect(credentials.user('admin').username).toBe('account-A');
       await session.close();
-      await expect(run({ cwd: fixture.dir, config: { targets } })).rejects.toMatchObject({ code: 'WORKER_PROTOCOL' });
+      await expect(run({ cwd: fixture.dir, config: { targets } })).rejects.toMatchObject({ code: 'RUNNER_BUSY' });
     } finally {
       await host.close();
     }
@@ -177,7 +176,7 @@ test('refuses host', async () => {
     const host = await openHost({ config: { targets: [{ name: 'other', platform: 'test', engine }] } });
     await host.close();
   } catch (cause) { code = cause.code; }
-  expect(code).toBe('WORKER_PROTOCOL');
+  expect(code).toBe('RUNNER_BUSY');
 });`,
     });
     const rawConfig = { targets: [{ name: 'fake', platform: 'test', engine: fake.engine, app: FAKE_APP }] };
@@ -196,7 +195,7 @@ test('refuses host', async () => {
       },
     });
     expect(outcome.exitCode).toBe(0);
-    expect(await refusal).toMatchObject({ code: 'WORKER_PROTOCOL' });
+    expect(await refusal).toMatchObject({ code: 'RUNNER_BUSY' });
     const host = await openHost({ cwd: fixture.dir, config });
     await host.close();
   });
@@ -215,6 +214,6 @@ test('refuses host', async () => {
       },
     });
     expect(outcome.exitCode).toBe(0);
-    expect(await refusal).toMatchObject({ code: 'WORKER_PROTOCOL' });
+    expect(await refusal).toMatchObject({ code: 'RUNNER_BUSY' });
   });
 });

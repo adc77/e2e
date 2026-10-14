@@ -1034,7 +1034,7 @@ export class TargetExecutor implements SerialHost {
       // run on is published here and cleared when `attemptEnd` fires in `finally`.
       const soft = new SoftFailures();
       publishAttempt(
-        { attemptId, testKind: pair.test.kind, assertionTimeout: this.config.assertionTimeout, budget, soft },
+        { attemptId, owner: 'suite', testKind: pair.test.kind, assertionTimeout: this.config.assertionTimeout, budget, soft },
         attemptEnd.signal,
       );
 

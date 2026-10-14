@@ -35,24 +35,17 @@ console.log(result.status, result.report.run.summary);
 
 ### Execution options
 
-`run` accepts the [selection options](#options) that `list` accepts, including `cwd`, `config`, `files`, and `targets`. Omit `config` to discover `e2e.config.ts`; pass a path to load a file or an `E2EConfig` value to use runtime configuration.
-
-A config value can contain live engine, model, and executor instances, so it runs with one worker in the caller's process, regardless of `workers`. A file config supports the configured worker processes.
+`run` accepts these options. Put execution settings, such as retries and workers, in the config.
 
 | Option | Meaning |
 | --- | --- |
-| `onEvent` | Receives typed `RunEvent` progress, including `test-started`, `test-finished`, and `run-finished`. An event sink must not block; a throwing or rejecting sink is disabled without failing the run. |
-| `interruptSignal` | Call `controller.abort()` to interrupt the run and execute teardown. |
-| `forceSignal` | Abort to force worker disposal within the cleanup budget. |
-| `quiet` | Suppresses the list reporter. Defaults to `true`; `false` enables terminal progress when `list` is among the selected reporters. |
-| `headed`, `workers`, `retries` | Execution overrides for the matching CLI flags. |
-| `maxFailures`, `repeatEach`, `agent` | Failure limit, repeat count, and agent selection. |
-| `maxDuration` | Run budget in milliseconds, over the config's value. Expiry interrupts tests, runs teardown, and returns exit code `1` with `RUN_TIMEOUT`. |
-| `reporters`, `output` | Reporter selection and the results directory. |
-| `cacheDir` | Replay cache directory, over `E2E_CACHE_DIR` and the config's `cache.dir`. |
-| `noCache`, `strictCache`, `updateSnapshots` | Replay-cache and screenshot-baseline overrides. |
-| `trace`, `video`, `aiTrace`, `debug` | Recording modes, model-call tracing, and phase timings. |
-| `freshGraph` | Reloads the project's helper modules as well as its tests for this run. |
+| `cwd` | Project directory. Defaults to the current working directory. |
+| `config` | Config file path or an `E2EConfig` value. Omit it to discover `e2e.config.ts`. |
+| `files` | File selection: paths, globs, bare names, or `file:line`. Omit it to run the configured suite. |
+| `interruptSignal` | Abort to interrupt tests and execute teardown. |
+| `onEvent` | Receives typed progress events. Must not block; a throwing or rejecting callback is disabled without failing the run. |
+
+Runtime config runs with one worker in the caller's process. A file config supports the configured worker processes. Terminal progress is disabled; use `onEvent` for progress.
 
 ### Completed result
 
@@ -64,9 +57,9 @@ A config value can contain live engine, model, and executor instances, so it run
 | `reportPath` | Absolute path to `report.json`, or `undefined` if it could not be written. |
 | `aiTracePath` | AI trace path, or `undefined` when no AI trace was written. |
 
-Test failures, config failures, and interruption resolve with their status and errors in the report. Overlapping public calls reject with `WORKER_PROTOCOL` before changing the active run. A suite also rejects while a host is opening or open; close every host before running a suite, and await a suite before opening a host.
+Test failures, config failures, and interruption resolve with their status and errors in the report. Overlapping suites reject with `RUNNER_BUSY`. Close every host before running a suite, and await the suite before opening a host.
 
-During the call, stdout and stderr use the CLI's UTF-8 text redaction, including values split across writes; binary output is not preserved. Config output is held until its secrets are known, or withheld if loading fails. Normal caller output resumes after cleanup. Async work left by a timed-out test keeps its redaction context if it prints later.
+Suite output uses UTF-8 text redaction and does not preserve binary data. Your application's logs and progress callback output stay under your control.
 
 ## list
 

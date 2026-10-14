@@ -107,7 +107,7 @@ export function reserveAttempt(worker: AttemptWorker, options: StandaloneSession
   if (worker.kind === 'one-shot') return { attemptId, options, end, signal, budget, soft, polls, release: () => undefined };
   const { config } = worker;
   const publication = new AbortController();
-  publishAttempt({ attemptId, testKind: 'test', assertionTimeout: config.assertionTimeout, budget, soft, polls }, publication.signal);
+  publishAttempt({ attemptId, owner: 'host', testKind: 'test', assertionTimeout: config.assertionTimeout, budget, soft, polls }, publication.signal);
   // The live attempt's secrets resolve against its own config while other hosts hold theirs.
   const releaseRegistry = holdSecretRegistry(config, { live: true });
   return { attemptId, options, end, signal, budget, soft, polls, release: () => { publication.abort(); releaseRegistry(); } };

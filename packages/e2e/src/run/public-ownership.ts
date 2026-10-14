@@ -1,5 +1,5 @@
 import { currentAttempt } from '../expect/attempt.ts';
-import { InfrastructureError } from '../internal/errors.ts';
+import { ConfigurationError } from '../internal/errors.ts';
 import { realmSlot } from '../internal/realm-slot.ts';
 
 interface RunnerOwners {
@@ -22,9 +22,9 @@ function owners(): RunnerOwners {
 /** Reserves the process before a suite can change registries or claim output. */
 export function reserveSuiteRun(): () => void {
   const state = owners();
-  if (state.suite !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'a public run is already in progress; await it before starting another');
-  if (state.hosts.size > 0) throw new InfrastructureError('WORKER_PROTOCOL', 'a hosted runner is still open; close it before starting a suite');
-  if (currentAttempt() !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'an attempt is still running; close it before starting a suite');
+  if (state.suite !== undefined) throw new ConfigurationError('RUNNER_BUSY', 'a public run is already in progress; await it before starting another');
+  if (state.hosts.size > 0) throw new ConfigurationError('RUNNER_BUSY', 'a hosted runner is still open; close it before starting a suite');
+  if (currentAttempt() !== undefined) throw new ConfigurationError('RUNNER_BUSY', 'an attempt is still running; close it before starting a suite');
   const owner = {};
   state.suite = owner;
   return () => { if (state.suite === owner) state.suite = undefined; };
@@ -33,8 +33,8 @@ export function reserveSuiteRun(): () => void {
 /** Holds a host's process ownership from before config loading through close. */
 export function reserveHostedRun(): () => void {
   const state = owners();
-  if (state.suite !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'a suite is running; await it before opening a host');
-  if (state.hosts.size === 0 && currentAttempt() !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'a suite attempt is still running; await it before opening a host');
+  if (state.suite !== undefined) throw new ConfigurationError('RUNNER_BUSY', 'a suite is running; await it before opening a host');
+  if (currentAttempt()?.owner === 'suite') throw new ConfigurationError('RUNNER_BUSY', 'a suite attempt is still running; await it before opening a host');
   const owner = {};
   state.hosts.add(owner);
   return () => { state.hosts.delete(owner); };

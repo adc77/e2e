@@ -1,17 +1,13 @@
+import { AsyncResource } from 'node:async_hooks';
 import type { Report } from '../types.ts';
 import type { RunExitCode, RunStatus } from './events.ts';
 import { withProcessOutput } from './process-output.ts';
 import { reserveSuiteRun } from './public-ownership.ts';
 import { processSecrets } from './secrecy.ts';
-import { run as execute, type ListOptions, type RunOptions as InternalRunOptions } from './runner.ts';
+import { run as execute, toSelectionRunOptions, type ListOptions, type RunOptions as InternalRunOptions } from './runner.ts';
 
 /** Options for executing a suite through the public runner API. */
-export type SuiteRunOptions = ListOptions & Pick<InternalRunOptions,
-  | 'headed' | 'retries' | 'workers' | 'maxFailures' | 'maxDuration' | 'repeatEach'
-  | 'reporters' | 'noCache' | 'cacheDir' | 'strictCache' | 'updateSnapshots' | 'agent'
-  | 'debug' | 'aiTrace' | 'trace' | 'video' | 'freshGraph' | 'quiet'
-  | 'interruptSignal' | 'forceSignal' | 'onEvent'
->;
+export type SuiteRunOptions = Pick<ListOptions, 'cwd' | 'config' | 'files'> & Pick<InternalRunOptions, 'interruptSignal' | 'onEvent'>;
 
 /** The completed run's report and output paths, without live engine or configuration handles. */
 export interface RunResult {
@@ -26,19 +22,33 @@ export interface RunResult {
 export async function runSuite(options: SuiteRunOptions = {}): Promise<RunResult> {
   const release = reserveSuiteRun();
   try {
+    const onEvent = options.onEvent === undefined ? undefined : AsyncResource.bind(options.onEvent);
     return await withProcessOutput(processSecrets, async (output) => {
-      const { config, targets, ...rest } = options;
-      const { exitCode, status, report, reportPath, aiTracePath } = await execute({
-        ...rest,
-        quiet: options.quiet ?? true,
-        processOutput: output,
-        ...(typeof config === 'string' ? { configPath: config } : {}),
-        ...(config !== undefined && typeof config !== 'string' ? { rawConfig: config } : {}),
-        ...(targets !== undefined ? { targetIds: targets } : {}),
-      });
-      return { exitCode, status, report, reportPath, aiTracePath };
+      const interrupt = ownedInterrupt(options.interruptSignal);
+      try {
+        const { exitCode, status, report, reportPath, aiTracePath } = await execute({
+          ...toSelectionRunOptions({ cwd: options.cwd, config: options.config, files: options.files }),
+          quiet: true,
+          processOutput: output,
+          interruptSignal: interrupt.signal,
+          onEvent,
+        });
+        return { exitCode, status, report, reportPath, aiTracePath };
+      } finally {
+        interrupt.dispose();
+      }
     });
   } finally {
     release();
   }
+}
+
+/** Caller cancellation enters the suite's async context before invoking its listeners. */
+function ownedInterrupt(signal: AbortSignal | undefined): { signal: AbortSignal | undefined; dispose(): void } {
+  if (signal === undefined) return { signal: undefined, dispose: () => undefined };
+  const controller = new AbortController();
+  const abort = AsyncResource.bind(() => controller.abort(signal.reason));
+  if (signal.aborted) abort();
+  else signal.addEventListener('abort', abort, { once: true });
+  return { signal: controller.signal, dispose: () => signal.removeEventListener('abort', abort) };
 }

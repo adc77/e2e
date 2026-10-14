@@ -75,17 +75,17 @@ test-target pair, `file › title [target] #tag`, skipped pairs ending in
 filter removed, positional arguments that matched no file, and the selected
 target names.
 
-`import { run } from 'e2e/runner'` executes the suite and returns its report,
-without exiting the caller. Pass `config` as a file path or runtime config,
-`onEvent` for progress, and `interruptSignal` to cancel with teardown. A runtime
-config uses one in-process worker. Await each run before starting the next,
-and close every host before starting a suite; overlaps reject with
-`WORKER_PROTOCOL`. The call redacts process output; normal caller output resumes
-after cleanup, while async work abandoned by a timeout keeps redacting.
 
 ```bash
 npx e2e list tests/signup.e2e.ts --tag smoke --reporter json
 ```
+
+`import { run } from 'e2e/runner'` executes the suite and returns its report
+without exiting the caller. Pass `cwd`, `config`, and `files` to select the
+project and tests; `onEvent` receives progress and `interruptSignal` cancels
+with teardown. A runtime config uses one in-process worker. Await each run
+before starting the next and close every host first; overlaps reject with
+`RUNNER_BUSY`.
 
 With a `package.json` script `"test:e2e": "e2e run"`, pnpm forwards `--`
 literally: `pnpm test:e2e -- --headed` reaches e2e as `run -- --headed` and

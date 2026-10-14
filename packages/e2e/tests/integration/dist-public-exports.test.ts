@@ -40,8 +40,8 @@ describe('the built declarations', () => {
     for (const name of ['list', 'run', 'RunOptions', 'RunResult', 'RunEventSink', 'ConfigurationError', 'isE2EError']) {
       expect(mentions(runner, name), name).toBe(true);
     }
-    expect(runner).toMatch(/export \{[^}]*\brunSuite as run\b[^}]*\}/u);
-    expect(declaration('run/public-run.d.ts')).toMatch(/export declare function runSuite\(options\?: SuiteRunOptions\): Promise<RunResult>/u);
+    const api = await import(new URL('../../dist/runner.js', import.meta.url).href);
+    expect(api.run).toBeTypeOf('function');
     expect(declaration('index.d.ts')).not.toMatch(/export \{[^}]*\brun\b[^}]*\}/u);
     expect(mentions(declaration('index.d.ts'), 'list')).toBe(false);
     const sdk = await import(new URL('../../dist/index.js', import.meta.url).href);

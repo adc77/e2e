@@ -640,12 +640,12 @@ describe('async group', async () => {});
 // @ts-expect-error a suite hook sees suite fixtures only
 beforeAll((fixtures) => void fixtures.screen);
 
-// Suite execution accepts the same config and target names as list, plus progress and cancellation.
+// Suite execution accepts project selection, progress, and cancellation; execution settings live in config.
 declare const runResult: RunResult;
 void (run() satisfies Promise<RunResult>);
 void run({
-  cwd: '.', config: { targets }, files: ['tests/a.e2e.ts'], targets: ['web'],
-  interruptSignal: new AbortController().signal, quiet: true, retries: 1, maxDuration: 60_000, cacheDir: '.e2e/cache',
+  cwd: '.', config: { targets }, files: ['tests/a.e2e.ts'],
+  interruptSignal: new AbortController().signal,
   onEvent: (event) => { event satisfies RunEvent; },
 } satisfies RunOptions);
 void run({ config: 'e2e.config.ts' });
@@ -657,8 +657,16 @@ void (runResult.aiTracePath satisfies string | undefined);
 void (((event: RunEvent) => { event.type; }) satisfies RunEventSink);
 // @ts-expect-error runtime configuration uses config, not the internal rawConfig name
 void run({ rawConfig: { targets } });
-// @ts-expect-error target selection uses targets, not the internal targetIds name
+// @ts-expect-error targetIds is an internal runner option
 void run({ targetIds: ['web'] });
+// @ts-expect-error public execution settings belong in the config
+void run({ targets: ['web'] });
+// @ts-expect-error freshGraph is a CLI option, not an embedded execution option
+void run({ freshGraph: true });
+// @ts-expect-error debug terminal output is a CLI option
+void run({ debug: true });
+// @ts-expect-error public execution settings belong in the config
+void run({ workers: 2 });
 // @ts-expect-error internal registrations are not part of the public runner
 void run({ tests: {} });
 // @ts-expect-error outcomes do not expose live resolved configuration

@@ -8,7 +8,7 @@
  */
 
 import { StreamRedactor, type SecretLedger } from '../internal/redact.ts';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage, AsyncResource } from 'node:async_hooks';
 import { realmSlot } from '../internal/realm-slot.ts';
 import type { ListReporterOutput } from '../report/list.ts';
 
@@ -20,9 +20,9 @@ export type TerminalWrite = (text: string, callback?: () => void) => boolean;
 const BYTE_ENCODINGS: ReadonlySet<BufferEncoding> = new Set(['hex', 'base64', 'base64url']);
 
 interface OutputRouting {
-  readonly scope: AsyncLocalStorage<RunnerOutput>;
-  readonly terminal: Readonly<Record<OutputStream, TerminalWrite>>;
-  active: RunnerOutput | undefined;
+  readonly scope: AsyncLocalStorage<RunnerOutput | null>;
+  readonly terminal: Record<OutputStream, TerminalWrite>;
+  readonly dispatchers: Partial<Record<OutputStream, typeof process.stdout.write>>;
   process: RunnerOutput | undefined;
 }
 
@@ -30,30 +30,38 @@ const routingSlot = realmSlot<OutputRouting>('e2e.process-output.routing.v1');
 
 /** One process dispatcher preserves redaction for asynchronous work that outlives a suite. */
 function routing(): OutputRouting {
-  const installed = routingSlot.get(process);
-  if (installed !== undefined) return installed;
   const streams = { stdout: process.stdout, stderr: process.stderr } as const;
-  const original = { stdout: streams.stdout.write, stderr: streams.stderr.write };
-  const state: OutputRouting = {
-    scope: new AsyncLocalStorage(),
-    terminal: {
-      stdout: original.stdout.bind(streams.stdout) as TerminalWrite,
-      stderr: original.stderr.bind(streams.stderr) as TerminalWrite,
-    },
-    active: undefined,
-    process: undefined,
-  };
+  let state = routingSlot.get(process);
+  if (state === undefined) {
+    state = {
+      scope: new AsyncLocalStorage(),
+      terminal: {
+        stdout: streams.stdout.write.bind(streams.stdout) as TerminalWrite,
+        stderr: streams.stderr.write.bind(streams.stderr) as TerminalWrite,
+      },
+      dispatchers: {},
+      process: undefined,
+    };
+    routingSlot.set(process, state);
+  }
   for (const name of ['stdout', 'stderr'] as const) {
-    const forward = original[name].bind(streams[name]) as (chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void) => boolean;
-    streams[name].write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void): boolean => {
-      const output = state.scope.getStore() ?? state.active ?? state.process;
+    if (streams[name].write === state.dispatchers[name]) continue;
+    const forward = streams[name].write.bind(streams[name]) as (chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void) => boolean;
+    state.terminal[name] = (text, callback) => {
+      const done = callback === undefined ? undefined : AsyncResource.bind(callback);
+      return state.scope.run(null, () => forward(text, done));
+    };
+    const dispatch = ((chunk: string | Uint8Array, encoding?: BufferEncoding | (() => void), callback?: () => void): boolean => {
+      const context = state.scope.getStore();
+      const output = context === null ? undefined : context ?? state.process;
       if (output === undefined) return forward(chunk, encoding, callback);
       const done = typeof encoding === 'function' ? encoding : callback;
       const bytes = typeof chunk === 'string' && typeof encoding === 'string' && BYTE_ENCODINGS.has(encoding);
       return output.write(name, bytes ? Buffer.from(chunk, encoding) : chunk, done);
     }) as typeof process.stdout.write;
+    state.dispatchers[name] = dispatch;
+    streams[name].write = dispatch;
   }
-  routingSlot.set(process, state);
   return state;
 }
 
@@ -68,15 +76,10 @@ export function claimProcessOutput(ledger: SecretLedger): RunnerOutput {
 export async function withProcessOutput<T>(ledger: SecretLedger, run: (output: RunnerOutput) => Promise<T>): Promise<T> {
   const state = routing();
   const output = new RunnerOutput(state.terminal, ledger);
-  state.active = output;
   try {
     return await state.scope.run(output, () => run(output));
   } finally {
-    try {
-      output.end();
-    } finally {
-      if (state.active === output) state.active = undefined;
-    }
+    output.end();
   }
 }
 
