@@ -60,7 +60,8 @@ import { DEVICE_PERMISSIONS, type AgentDeviceClient, type ClientFactory, type De
 import { maskPng } from './png.ts';
 import { deviceLabel, pinnedApp, type SlotBinding } from './bindings.ts';
 import { assertAppId } from './links.ts';
-import { DevicePool, deviceSelection, type DeviceSelection } from './pool.ts';
+import { DevicePool, deviceSelection } from './pool.ts';
+import { selectedClient } from './selected-client.ts';
 import { recordLease, travelledLease, type DeviceLease, type RecordingDeviceProvider } from './provider.ts';
 import {
   invalidState,
@@ -491,11 +492,6 @@ export class AgentDeviceSurface {
     }
   }
 
-  /** The device selection this worker's commands take. */
-  private selection(): DeviceSelection {
-    return deviceSelection(this.options.platform, this.device);
-  }
-
   async init(info: EngineInitInfo): Promise<void> {
     this.projectRoot = info.projectRoot;
     this.app = info.app;
@@ -504,14 +500,14 @@ export class AgentDeviceSurface {
     const session = this.pool.session(info.targetName, info.workerSlot);
     const label = deviceLabel(binding);
     this.where = `session ${session}${label === undefined ? '' : ` on ${label}`}`;
-    this.client ??= this.createClient(session, binding);
+    this.client ??= selectedClient(this.createClient(session, binding), deviceSelection(this.options.platform, binding));
     const provider = this.pool.recorder;
     const lease = travelledLease(binding);
     this.leaseRecorder =
       provider === undefined || lease === undefined
         ? undefined
         : { provider, lease, runId: info.runId, targetName: info.targetName, env: info.env };
-    await this.command('boot', (client) => client.devices.boot(this.selection()), info.signal);
+    await this.command('boot', (client) => client.devices.boot(), info.signal);
     // Nothing is installed here: a device provider that installed the build
     // from `appPath` says so on the binding, and otherwise the suite installs
     // it where it wants to, with `device.installApp()`.
@@ -701,7 +697,6 @@ export class AgentDeviceSurface {
       (client) =>
         client.apps.open({
           app,
-          ...this.selection(),
           ...(relaunch ? { relaunch: true } : {}),
           ...(launchArguments === undefined || launchArguments.length === 0 ? {} : { launchArgs: [...launchArguments] }),
         }),
@@ -732,7 +727,7 @@ export class AgentDeviceSurface {
   private async permission(permission: DevicePermission, state: PermissionState, app: string | undefined, signal: AbortSignal): Promise<void> {
     await this.command(
       `permission ${permission} ${state}`,
-      (client) => client.settings.update({ setting: 'permission', permission, state, ...this.selection(), ...(app === undefined ? {} : { app }) }),
+      (client) => client.settings.update({ setting: 'permission', permission, state, ...(app === undefined ? {} : { app }) }),
       signal,
     );
   }
@@ -761,10 +756,7 @@ export class AgentDeviceSurface {
     const result = await this.command(
       'device.openLink',
       (client) =>
-        client.apps.open({
-          ...this.selection(),
-          ...(target === undefined ? { app: url.href } : { app: target, url: url.href }),
-        }),
+        client.apps.open(target === undefined ? { app: url.href } : { app: target, url: url.href }),
       signal,
     );
     this.launched(result.appBundleId ?? (target === undefined ? undefined : (result.appName ?? target)));
@@ -815,7 +807,6 @@ export class AgentDeviceSurface {
     const build = appPath ?? this.app.appPath;
     if (build === undefined) throw invalidState("installApp needs a build: pass a path, or name one with the target's app.appPath");
     const resolved = path.resolve(this.projectRoot, build);
-    const selection = this.selection();
     const engineBuild = appPath === undefined || (this.app.appPath !== undefined && resolved === path.resolve(this.projectRoot, this.app.appPath));
     const app = options.app ?? (engineBuild ? this.app.bundleId : undefined) ?? (options.reinstall === true ? this.pinnedApp : undefined);
     if (options.reinstall === true && app === undefined) {
@@ -825,8 +816,8 @@ export class AgentDeviceSurface {
       `install ${resolved}`,
       (client) =>
         options.reinstall === true && app !== undefined
-          ? client.apps.reinstall({ ...selection, app, appPath: resolved })
-          : client.apps.install({ ...selection, ...(app === undefined ? {} : { app }), appPath: resolved }),
+          ? client.apps.reinstall({ app, appPath: resolved })
+          : client.apps.install({ ...(app === undefined ? {} : { app }), appPath: resolved }),
       signal,
     );
     const identity = result.bundleId ?? result.package ?? result.appId;

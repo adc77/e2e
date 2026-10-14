@@ -23,6 +23,7 @@ import { bindingsVariable, decodeBindings, deviceLabel, encodeBindings, pinnedAp
 import { isRunnerFailure, message, runCommand } from './errors.ts';
 import type { AgentDeviceClient, MobileOptions, MobilePlatform, ClientFactory } from './options.ts';
 import { asDeviceProvider, LeasedDevices, type RecordingDeviceProvider } from './provider.ts';
+import { selectedClient } from './selected-client.ts';
 
 /** An Apple simulator UDID. */
 const UDID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
@@ -251,10 +252,10 @@ export class DevicePool {
       const where = deviceSelection(this.options.platform, binding);
       const session = this.session(info.targetName, slot);
       const at = `session ${session} on ${label}`;
-      const client = this.createClient(session, binding);
+      const client = selectedClient(this.createClient(session, binding), where);
       this.retain(info.targetName, client);
       info.log(`booting ${label} (${slot + 1} of ${bindings.length})`);
-      await runCommand('boot', () => client.devices.boot(where), info.signal, at);
+      await runCommand('boot', () => client.devices.boot(), info.signal, at);
       const runnerUp = this.options.platform !== 'ios' || (await prepareRunner(client, where, info, at));
       const app = pinnedApp(info.app, binding.installedApp);
       if (app === undefined || !runnerUp) continue;
@@ -265,7 +266,7 @@ export class DevicePool {
         continue;
       }
       try {
-        await runCommand(`open ${app}`, () => client.apps.open({ app, ...where }), info.signal, at);
+        await runCommand(`open ${app}`, () => client.apps.open({ app }), info.signal, at);
       } catch (cause) {
         if (info.signal.aborted || isRunnerFailure(cause)) throw cause;
         info.log(`${label}: ${app} did not open (${message(cause)}); the first attempt opens it`);
