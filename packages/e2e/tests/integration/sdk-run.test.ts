@@ -162,6 +162,28 @@ test('waits', async ({ app, screen }) => {
     expect((await run({ cwd: fixture.dir, config: { targets } })).exitCode).toBe(0);
   });
 
+  it('refuses host config loading inside a non-hosted suite attempt', async () => {
+    const internalModule = new URL('../../dist/run/runner.js', import.meta.url).href;
+    const { run: executeSuite } = (await import(internalModule)) as typeof import('../../src/run/runner.ts');
+    const fake = createFakeEngine();
+    const fixture = project({
+      'tests/one.e2e.ts': `import { test, expect } from 'e2e';
+import { defineEngine } from 'e2e/engine';
+import { openHost } from 'e2e/runner';
+test('refuses host', async () => {
+  const engine = defineEngine({ name: 'other', version: '1', spiVersion: 1 });
+  let code;
+  try {
+    const host = await openHost({ config: { targets: [{ name: 'other', platform: 'test', engine }] } });
+    await host.close();
+  } catch (cause) { code = cause.code; }
+  expect(code).toBe('WORKER_PROTOCOL');
+});`,
+    });
+    const rawConfig = { targets: [{ name: 'fake', platform: 'test', engine: fake.engine, app: FAKE_APP }] };
+    expect((await executeSuite({ cwd: fixture.dir, rawConfig, quiet: true })).exitCode).toBe(0);
+  });
+
   it('refuses a host opening while a suite owns the process', async () => {
     const fake = createFakeEngine();
     const fixture = project({ 'tests/one.e2e.ts': `import { test } from 'e2e'; test('one', async () => {});` });

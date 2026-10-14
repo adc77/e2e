@@ -34,6 +34,7 @@ export function reserveSuiteRun(): () => void {
 export function reserveHostedRun(): () => void {
   const state = owners();
   if (state.suite !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'a suite is running; await it before opening a host');
+  if (state.hosts.size === 0 && currentAttempt() !== undefined) throw new InfrastructureError('WORKER_PROTOCOL', 'a suite attempt is still running; await it before opening a host');
   const owner = {};
   state.hosts.add(owner);
   return () => { state.hosts.delete(owner); };

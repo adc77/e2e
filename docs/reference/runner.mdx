@@ -44,7 +44,7 @@ A config value can contain live engine, model, and executor instances, so it run
 | `onEvent` | Receives typed `RunEvent` progress, including `test-started`, `test-finished`, and `run-finished`. An event sink must not block; a throwing or rejecting sink is disabled without failing the run. |
 | `interruptSignal` | Call `controller.abort()` to interrupt the run and execute teardown. |
 | `forceSignal` | Abort to force worker disposal within the cleanup budget. |
-| `quiet` | Suppresses the list reporter. Defaults to `true`; `false` enables terminal progress. |
+| `quiet` | Suppresses the list reporter. Defaults to `true`; `false` enables terminal progress when `list` is among the selected reporters. |
 | `headed`, `workers`, `retries` | Execution overrides for the matching CLI flags. |
 | `maxFailures`, `repeatEach`, `agent` | Failure limit, repeat count, and agent selection. |
 | `maxDuration` | Run budget in milliseconds, over the config's value. Expiry interrupts tests, runs teardown, and returns exit code `1` with `RUN_TIMEOUT`. |
@@ -66,7 +66,7 @@ A config value can contain live engine, model, and executor instances, so it run
 
 Test failures, config failures, and interruption resolve with their status and errors in the report. Overlapping public calls reject with `WORKER_PROTOCOL` before changing the active run. A suite also rejects while a host is opening or open; close every host before running a suite, and await a suite before opening a host.
 
-During the call, stdout and stderr use the CLI's secret redaction, including values split across writes. Config output is held until its secrets are known, or withheld if loading fails. Normal caller output resumes after cleanup. Async work left by a timed-out test keeps its redaction context if it prints later.
+During the call, stdout and stderr use the CLI's UTF-8 text redaction, including values split across writes; binary output is not preserved. Config output is held until its secrets are known, or withheld if loading fails. Normal caller output resumes after cleanup. Async work left by a timed-out test keeps its redaction context if it prints later.
 
 ## list
 

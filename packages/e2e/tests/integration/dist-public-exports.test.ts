@@ -35,7 +35,7 @@ describe('the built declarations', () => {
     }
   });
 
-  it('declares suite execution and selection from e2e/runner and not from e2e', () => {
+  it('declares suite execution and selection from e2e/runner and not from e2e', async () => {
     const runner = declaration('runner.d.ts');
     for (const name of ['list', 'run', 'RunOptions', 'RunResult', 'RunEventSink', 'ConfigurationError', 'isE2EError']) {
       expect(mentions(runner, name), name).toBe(true);
@@ -44,6 +44,9 @@ describe('the built declarations', () => {
     expect(declaration('run/public-run.d.ts')).toMatch(/export declare function runSuite\(options\?: SuiteRunOptions\): Promise<RunResult>/u);
     expect(declaration('index.d.ts')).not.toMatch(/export \{[^}]*\brun\b[^}]*\}/u);
     expect(mentions(declaration('index.d.ts'), 'list')).toBe(false);
+    const sdk = await import(new URL('../../dist/index.js', import.meta.url).href);
+    expect(sdk).not.toHaveProperty('run');
+    expect(sdk).not.toHaveProperty('list');
   });
 
   it.each([

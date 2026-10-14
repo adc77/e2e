@@ -18,6 +18,12 @@ async function inHost(files: Record<string, string>) {
     cwd: fixture.dir,
     env: { ...process.env, E2E_TELEMETRY_DISABLED: '1', NO_COLOR: '1' },
     timeout: 30_000,
+  }).catch((cause: unknown) => {
+    if (cause !== null && typeof cause === 'object' && 'stdout' in cause && 'stderr' in cause) {
+      expect(cause.stdout).not.toContain(SECRET);
+      expect(cause.stderr).not.toContain(SECRET);
+    }
+    throw cause;
   });
   expect(result.stdout).not.toContain(SECRET);
   expect(result.stderr).not.toContain(SECRET);
@@ -87,17 +93,23 @@ console.log('NEXT_RUN_PASSED');`,
       'host.mjs': `import { run } from 'e2e/runner';
 import assert from 'node:assert/strict';
 ${config}
+const release = Promise.withResolvers();
+const printed = Promise.withResolvers();
+globalThis.lateOutput = release.promise;
+globalThis.finishLateOutput = printed.resolve;
 const first = await run({ config, files: ['tests/late.e2e.ts'] });
 assert.equal(first.exitCode, 1);
 console.log('SUITE_RETURNED');
 const second = await run({ config: { ...config, secrets: { sentinel: 'next-run-private-value' } }, files: ['tests/next.e2e.ts'] });
 assert.equal(second.exitCode, 0);
-await new Promise((resolve) => setTimeout(resolve, 700));
+release.resolve();
+await printed.promise;
 console.log('CALLER_OUTPUT_RESUMED');`,
       'tests/late.e2e.ts': `import { test } from 'e2e';
 test('late output', { timeout: 30 }, async () => {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await globalThis.lateOutput;
   console.log('late: ${SECRET}');
+  globalThis.finishLateOutput();
 });`,
       'tests/next.e2e.ts': `import { test } from 'e2e'; test('next', async () => {});`,
     });
