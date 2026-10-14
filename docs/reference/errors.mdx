@@ -132,7 +132,7 @@ These appear in terminal output and in the report as plain string codes.
 | `SESSION_KEY_INVALID` | A worker received a session key that is not 32 bytes. Packaging or IPC fault. | infrastructure | 3 |
 | `REPORT_WRITE_FAILED` | `report.json` or `ai-trace.json` could not be written. Recorded as a run error; the in-memory outcome is still complete. A `junit.xml` that could not be written is the `junit` reporter's stderr line instead | infrastructure | 3 |
 | `EVALUATE_FAILED` | `browser.evaluate` threw inside the page (`@e2e-dev/web`) | test | 1 |
-| `INTERRUPTED` | A user or CI signal aborted the run | interrupted | 130 |
+| `INTERRUPTED` | A user or CI signal aborted the run. A test cut short by `--max-failures` or the time limit also ends with this code, its message naming the limit; that run exits 1, not 130 | interrupted | 130 |
 
 Errors raised by argument validation in test code use `INVALID_ARGUMENT` and
 `INVALID_LOCATOR`, both test failures with exit code 1. An unclassified thrown
