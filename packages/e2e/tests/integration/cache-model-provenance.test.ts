@@ -6,7 +6,7 @@ import type { ExecutorModelCall, StepExecutor } from '../../src/agent/executor.t
 import { installFakeLoopModel, loopCalls, nodeIdFor } from '../helpers/fake-loop-model.ts';
 import { startFixtureApp } from '../helpers/fixture-app.ts';
 import { assertValidReport } from '../helpers/report-schema.ts';
-import { contentsUnder, createProject, runExisting } from '../helpers/run-project.ts';
+import { contentsUnder, createProject, runExisting, runExistingWithConfigFile, workerConfigSource } from '../helpers/run-project.ts';
 import { onlyActStep, readEntries } from '../helpers/trace-cache.ts';
 import { ListReporter } from '../../src/report/list.ts';
 
@@ -291,3 +291,82 @@ test.describe('shared', { serial: true }, () => {
     await app.close();
   }
 });
+
+it('omits unsettled provenance from a streamed member if a later serial member crashes its worker', async () => {
+  const app = await startFixtureApp();
+  const secret = 'streamed-model-secret-6Hx2';
+  const suite = `import { test, expect, secrets } from 'e2e';
+test.describe('shared', { serial: true }, () => {
+  test('records flow', async ({ app, agent, screen }) => {
+    await app.open();
+    await agent.act('increment the counter twice');
+    await expect(screen.getByRole('status', 'Counter')).toHaveText('2');
+  });
+  test('resolves secret then crashes', async ({ screen }) => {
+    await screen.getByLabel('Password').fill(secrets.get('probe'));
+    process.exit(7);
+  });
+});`;
+  const file = 'tests/provenance.e2e.ts';
+  const project = createProject({ [file]: suite.replace("await screen.getByLabel('Password').fill(secrets.get('probe'));", '').replace('process.exit(7);', '') });
+  try {
+    const recorded = await runExisting(project, { appUrl: app.url, config: { agents: { default: { model: counterModel(secret) } } } });
+    expect(recorded.exitCode).toBe(0);
+    writeFileSync(path.join(project.dir, file), suite);
+    writeFileSync(path.join(project.dir, 'e2e.config.ts'), workerConfigSource(1, `cache: 'read-only', agents: { default: { executor: { name: 'blocked', async runStep() { throw new Error('expected replay'); } } } }, secrets: { probe: () => '${secret}' },`));
+    const outcome = await runExistingWithConfigFile(project, { appUrl: app.url });
+    expect(outcome.exitCode).toBe(3);
+    const members = outcome.report.run.serialGroups[0]!.attempts[0]!.members;
+    expect(members[0]!.status).toBe('passed');
+    expect(members[1]!.error?.code).toBe('WORKER_CRASH');
+    expect(JSON.stringify(outcome.report)).not.toContain(secret);
+    expect(readFileSync(outcome.reportPath!, 'utf8')).not.toContain(secret);
+    expect(members[0]!.steps.find((step) => step.api === 'agent.act')?.cache?.recordedBy).toBeUndefined();
+    assertValidReport(outcome.report);
+  } finally {
+    project.cleanup();
+    await app.close();
+  }
+}, 120_000);
+
+it.each(['ordinary', 'serial'])('omits provisional provenance when a %s retry resolves a secret then crashes', async (kind) => {
+  const app = await startFixtureApp();
+  const secret = `retry-model-secret-${kind}-3Lp8`;
+  const file = 'tests/provenance.e2e.ts';
+  const project = createProject({ [file]: '' });
+  const marker = JSON.stringify(path.join(project.dir, 'failed-once'));
+  const body = `test('records flow', ${kind === 'ordinary' ? '{ retries: 1 }, ' : ''}async ({ app, agent, screen }) => {
+    await app.open();
+    RETRY_CRASH
+    await agent.act('increment the counter twice');
+    await expect(screen.getByRole('status', 'Counter')).toHaveText('2');
+    FIRST_FAILURE
+  });`;
+  const suite = `import { existsSync, writeFileSync } from 'node:fs';
+import { test, expect, secrets } from 'e2e';
+${kind === 'serial' ? "test.describe('shared', { serial: true, retries: 1 }, () => {" : ''}
+${body}
+${kind === 'serial' ? '});' : ''}`;
+  try {
+    writeFileSync(path.join(project.dir, file), suite.replace('RETRY_CRASH', '').replace('FIRST_FAILURE', ''));
+    const recorded = await runExisting(project, { appUrl: app.url, config: { agents: { default: { model: counterModel(secret) } } } });
+    expect(recorded.exitCode).toBe(0);
+    writeFileSync(path.join(project.dir, file), suite.replace('RETRY_CRASH', `if (existsSync(${marker})) {
+      await screen.getByLabel('Password').fill(secrets.get('probe'));
+      process.exit(7);
+    }`).replace('FIRST_FAILURE', `writeFileSync(${marker}, ''); throw new Error('retry');`));
+    writeFileSync(path.join(project.dir, 'e2e.config.ts'), workerConfigSource(1, `cache: 'read-only', agents: { default: { executor: { name: 'blocked', async runStep() { throw new Error('expected replay'); } } } }, secrets: { probe: () => '${secret}' },`));
+    const outcome = await runExistingWithConfigFile(project, { appUrl: app.url });
+    expect(outcome.exitCode).toBe(3);
+    const attempts = kind === 'serial' ? outcome.report.run.serialGroups[0]!.attempts : outcome.results[0]!.attempts;
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]!.status).toBe('failed');
+    expect(attempts[1]!.error?.code).toBe('WORKER_CRASH');
+    expect(JSON.stringify(outcome.report)).not.toContain(secret);
+    expect(readFileSync(outcome.reportPath!, 'utf8')).not.toContain(secret);
+    assertValidReport(outcome.report);
+  } finally {
+    project.cleanup();
+    await app.close();
+  }
+}, 120_000);

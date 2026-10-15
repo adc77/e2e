@@ -252,14 +252,24 @@ export class TargetExecutor implements SerialHost {
     }
   }
 
-  /** Streams one member finished in a serial group attempt (SerialHost). */
+  /** Streams crash-recovery progress without provenance until the shared secret ledger settles. */
   serialMemberFinished(groupId: string, attempt: SerialAttemptStart, member: SerialMemberRecord): void {
-    this.options.events?.onSerialMember?.(groupId, attempt, member);
+    this.options.events?.onSerialMember?.(groupId, attempt, { ...member, steps: this.provisionalSteps(member.steps) });
   }
 
   /** Streams one finished serial group attempt (SerialHost). */
   serialAttemptFinished(groupId: string, run: SerialAttemptRun): void {
-    this.options.events?.onSerialAttempt?.(groupId, run);
+    const members = run.record.members.map((member) => ({ ...member, steps: this.provisionalSteps(member.steps) }));
+    this.options.events?.onSerialAttempt?.(groupId, { ...run, record: { ...run.record, members } });
+  }
+
+  /** Keeps unresolved identities out of crash-recovery snapshots without mutating final records. */
+  private provisionalSteps(steps: readonly StepRecord[]): StepRecord[] {
+    return steps.map((step) => {
+      if (step.cache?.recordedBy === undefined) return step;
+      const { recordedBy: _recordedBy, ...cache } = step.cache;
+      return { ...step, cache };
+    });
   }
 
   /** Builds one engine operation context. */
@@ -478,7 +488,7 @@ export class TargetExecutor implements SerialHost {
           kind: 'ordinary',
         });
         attempts.push(attempt);
-        this.options.events?.onAttempt?.(pair, attempt);
+        this.options.events?.onAttempt?.(pair, { ...attempt, steps: this.provisionalSteps(attempt.steps) });
         if (isFailedStatus(attempt.status)) {
           // A failed realm is never reused, but afterAll still runs for every
           // scope whose beforeAll started in it. A body that skipped itself
@@ -578,7 +588,7 @@ export class TargetExecutor implements SerialHost {
         attempts.push(attempt);
         // Sent before teardown and the session saves, as in runOrdinaryPair:
         // a crash in either then lands on this attempt instead of erasing it.
-        this.options.events?.onAttempt?.(pair, attempt);
+        this.options.events?.onAttempt?.(pair, { ...attempt, steps: this.provisionalSteps(attempt.steps) });
         await this.realms.leave(realm);
         if (attempt.status === 'passed') {
           for (const [name, saved] of staging.entries()) {

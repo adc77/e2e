@@ -25,8 +25,8 @@ Follow each `act` with a check of its outcome. In `read-write` mode, the
 runner saves the recording at the end of the attempt when a later
 verification step passed.
 
-Serial groups save verified recordings when the shared attempt ends. Each
-member's own checks decide what is verified.
+In `read-write` mode, serial groups save verified recordings after the
+shared attempt ends. Each member's checks verify only its own recordings.
 
 ```ts title="tests/cart.e2e.ts"
 import { expect, test } from 'e2e';
@@ -94,7 +94,9 @@ A recording misses after any of these changes:
 Changing the model doesn't cause a miss. Use `--no-cache` to evaluate a new
 model; a replay checks recorded actions. The report's
 [model provenance](/reference/reporters#model-provenance-in-cached-steps)
-names their source. Engine upgrades miss when a node no longer resolves.
+names their source. Engine upgrades leave keys unchanged. If a node no
+longer resolves, replay misses before its first action, or hands off after
+running an action.
 
 A timestamp or a fresh email address would miss on every run. Wrap such
 values in `unique()`, and the runner puts in the current value at replay:
