@@ -47,6 +47,8 @@ console.log(result.status, result.report.run.summary);
 
 Runtime config runs with one worker in the caller's process. A file config supports the configured worker processes. Terminal progress is disabled; use `onEvent` for progress.
 
+Helper modules your test files import stay cached between `run` calls in the same process, so edits to them need a new process.
+
 ### Completed result
 
 | Field | Meaning |

@@ -75,7 +75,6 @@ test-target pair, `file › title [target] #tag`, skipped pairs ending in
 filter removed, positional arguments that matched no file, and the selected
 target names.
 
-
 ```bash
 npx e2e list tests/signup.e2e.ts --tag smoke --reporter json
 ```
