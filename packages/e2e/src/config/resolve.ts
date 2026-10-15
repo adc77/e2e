@@ -74,6 +74,7 @@ export interface ResolvedConfig {
   readonly artifactStore: ArtifactStore | undefined;
   /** Absolute directory the run writes its results to: `--output`, else the config's `output`, else `<projectRoot>/.e2e`. */
   readonly output: string;
+  readonly keepResults: number;
   /** The built-in renderers in force: `--reporter` when given, else the config's ids. */
   readonly reporters: readonly BuiltinReporter[];
   /** The reporter objects the config names; `--reporter` never removes one. */
@@ -169,6 +170,7 @@ const TOP_LEVEL_KEYS = new Set([
   'workers',
   'artifacts',
   'output',
+  'keepResults',
   'trace',
   'video',
   'reporters',
@@ -285,6 +287,7 @@ export function resolveConfig(
   }
 
   const artifactStore = resolveArtifactStore(raw);
+  const keepResults = boundedInt(raw.keepResults, 'keepResults', 0, Number.MAX_SAFE_INTEGER) ?? 0;
   const { reporters, customReporters } = resolveReporters(raw, cli);
 
   const projectId = resolveProjectId(raw.projectId, options.projectRoot);
@@ -293,7 +296,7 @@ export function resolveConfig(
   const { agents, agentNames, agent } = resolveAgents(raw.agents, cli.agents);
   const limits = runLimits(agents.values());
   const { cache, source: cacheSource } = resolveCacheConfig(raw, ci, options.projectRoot, cli, env);
-  const output = resolveOutput(raw.output, cli.output, options.projectRoot, cache.dir, cacheSource, tests);
+  const output = resolveOutput(raw.output, cli.output, options.projectRoot, cache.dir, cacheSource, tests, keepResults);
 
   const resolved: ResolvedConfig = {
     projectId,
@@ -314,6 +317,7 @@ export function resolveConfig(
     workers,
     artifactStore,
     output,
+    keepResults,
     reporters,
     customReporters,
     agentNames,
@@ -496,6 +500,7 @@ function resolveOutput(
   cacheDir: string,
   cacheSource: CacheDirSource,
   tests: readonly string[],
+  keepResults: number,
 ): string {
   const where = flag === undefined ? 'output' : '--output';
   const value: unknown = flag ?? configured;
@@ -521,7 +526,7 @@ function resolveOutput(
     );
   }
   if (isWithin(real, cache)) refuse(`is the cache directory ${path.relative(root, cache)} or inside it; keep results and the replay cache apart`);
-  for (const owned of OUTPUT_OWNED_DIRS) {
+  for (const owned of [...OUTPUT_OWNED_DIRS, ...(keepResults > 0 ? ['history'] : [])]) {
     if (isWithin(cache, realpathOfExisting(path.join(output, owned)))) {
       refuse(`would hold ${cacheSource} ${path.relative(root, cache)} under ${owned}/, which the run owns; move ${cacheSource} or the output`);
     }
@@ -1037,6 +1042,7 @@ function computeConfigDigest(
     maxDuration: _maxDuration,
     artifacts: _artifacts,
     output: _output,
+    keepResults: _keepResults,
     trace: _trace,
     video: _video,
     targets: _targets,
