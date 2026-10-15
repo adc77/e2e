@@ -71,41 +71,10 @@ reporter for GitHub Actions.
 A name and at least one handler are required; anything else is
 `INVALID_CONFIG`.
 
-## Model provenance in cached steps
-
-`step.model` describes live model calls in that step. A fully replayed step
-has zero model calls and no `step.model`; the configured model was not tested.
-The CLI header labels it `configured model`.
-
-New recordings store `recordedBy`, exposed on replay as
-`step.cache.recordedBy` and in the trace page. After the test finishes, the
-console identifies each replay's source:
-
-```text
-replayed · recorded with provider/model-A
-```
-
-The metadata has this shape:
-
-```json
-{
-  "models": [{ "provider": "provider", "model": "model-A" }],
-  "complete": true
-}
-```
-
-The list contains identities reported by the executor, including models
-from a replayed prefix when a live repair records a new flow. It holds at
-most 16 distinct identities, each with nonempty `provider` and `model`
-strings of at most 300 characters. `complete: false` means some identities
-were unreported, invalid, or omitted at the limit, or a repaired prefix came
-from an older recording without provenance. A complete empty list means
-the executor reported no model calls.
-
-Older recordings keep working without `recordedBy`; their original model
-is unknown. Replay never fills it from the current configuration. Provenance
-changes neither the cache key nor replay eligibility. Run with `--no-cache`
-to test a newly configured model.
+Cached steps expose `cache.recordedBy: { provider, model }` in `report.json`
+and the trace page when the recording has it. Older recordings omit it.
+The console prints `replayed · recorded with provider/model` only when that
+identity differs from the configured model.
 
 ## The event stream
 

@@ -85,20 +85,4 @@ describe('step accounting model reasoning', () => {
     const event = steps.all()[0]!.events.find((candidate) => candidate.kind === 'model');
     expect(event?.reasoning).toBe('the field held [redacted]');
   });
-
-  it('collects actual identities, marks unreported calls and ignores accounting after close', async () => {
-    const { accounting, steps } = accountingWithSteps();
-    await steps.run('agent', 'agent.act', 'probe', async () => {
-      accounting.recordModelCall({ provider: 'first', modelId: 'model-A' });
-      accounting.recordModelCall({ provider: 'first', modelId: 'model-A' });
-      accounting.recordModelCall({ provider: 'second', modelId: 'model-B' });
-      accounting.recordModelCall({ provider: 'unidentified' });
-      accounting.close();
-      accounting.recordModelCall({ provider: 'late', modelId: 'ignored' });
-    });
-    expect(accounting.metrics.modelCalls).toBe(4);
-    expect(accounting.modelProvenance()).toEqual({
-      models: [{ provider: 'first', model: 'model-A' }, { provider: 'second', model: 'model-B' }], complete: false,
-    });
-  });
 });

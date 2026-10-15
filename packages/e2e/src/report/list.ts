@@ -294,6 +294,7 @@ export class ListReporter implements Reporter {
    * there only when no step named one.
    */
   private models: string | undefined;
+  private configuredModel: { label: string; agent: string } | undefined;
   /**
    * The exploration an `e2e explore` run reports through `explore` events;
    * while present, its view stands in for the one synthetic test's file
@@ -494,6 +495,7 @@ export class ListReporter implements Reporter {
 
   private runStarted(event: RunEventOf<'run-started'>): void {
     const { pc } = this;
+    this.configuredModel = event.model === undefined ? undefined : { label: event.model, agent: event.agents?.[0] ?? 'default' };
     this.projectRoot = event.projectRoot;
     this.artifactsRoot = event.artifactsRoot;
     this.targets = event.targets;
@@ -512,7 +514,7 @@ export class ListReporter implements Reporter {
     if (event.model !== undefined) {
       this.models = bounded(event.model);
       if (event.judge !== undefined) this.models += ` · judge ${bounded(event.judge)}`;
-      this.print(BADGE_PADDING + pc.dim(`configured model ${this.models}`));
+      this.print(BADGE_PADDING + pc.dim(`model ${this.models}`));
     }
     this.print('');
     this.window.start();
@@ -719,8 +721,9 @@ export class ListReporter implements Reporter {
       this.window.redraw();
       return;
     }
-    for (const recorded of recordedSteps) {
-      const replay = replayLine(this.pc, recorded);
+    const configured = this.configuredModel?.agent === result.agent ? this.configuredModel.label : undefined;
+    for (const step of recordedSteps) {
+      const replay = replayLine(this.pc, step, configured);
       if (replay !== undefined) this.print(`${TEST_INDENT}${this.pc.dim(title)}${this.separator}${replay}`);
     }
     const line: TestLine = {
@@ -876,7 +879,7 @@ export class ListReporter implements Reporter {
       ];
     const ai = usageText(this.runUsage);
     if (ai !== undefined) {
-      const models = this.runUsage.calls === 0 ? undefined : modelsText(this.runModels) ?? this.models;
+      const models = modelsText(this.runModels) ?? this.models;
       rows.push(padTitle(pc, 'AI') + `${ai} · ${this.runUsage.calls} model calls${models === undefined ? '' : ` · ${models}`}`);
     }
     const cache = cacheText(pc, this.runCache);

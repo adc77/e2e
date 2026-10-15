@@ -25,7 +25,6 @@ import { resultId, timestamp, uuidv7 } from '../internal/ids.ts';
 import { engineAppInfo } from '../config/app.ts';
 import { Deadline, NEVER_ABORTS, withAbort, withScopedBudget, withTimeout } from '../internal/time.ts';
 import { createAgentCacheContext, settleStagedTraces } from '../cache/context.ts';
-import { redactModelProvenance } from '../cache/models.ts';
 import { storedRecordingsFor, type StoredRecordings } from '../cache/rekeyed.ts';
 import type { ModuleRegistration, RegisteredTest } from '../collect/registry.ts';
 import { pairRecordings, type TestTargetPair } from '../collect/select.ts';
@@ -58,7 +57,7 @@ import { interruptedInPhase, interruptedSkip, pairKey, pairResult, unstartedResu
 import { adoptSecrecy, carriedSecrecy, processSecrets, registerDerivedSecrets, redactForSession, resolveSecretValue, sessionSecrecy, staticSecretLedger } from './secrecy.ts';
 import { isSecret } from '../secrets.ts';
 import { SessionStaging, SessionStore, targetIdentity, type SessionIdentity } from './sessions.ts';
-import { StepRecorder, type StepProgress, type StepRecord } from './steps.ts';
+import { StepRecorder, type StepProgress } from './steps.ts';
 import { EngineError } from '../engine/contract.ts';
 import { hostedVideoUrl } from '../engine/recording.ts';
 import { WorkerModels } from './worker-models.ts';
@@ -228,7 +227,6 @@ export class TargetExecutor implements SerialHost {
 
   /** Emits one final result record (SerialHost). Records are not retained. */
   emit(result: ResultRecord): void {
-    for (const attempt of result.attempts) this.redactRecordedModels(attempt.steps);
     this.options.events?.onResult?.(result);
   }
 
@@ -239,37 +237,17 @@ export class TargetExecutor implements SerialHost {
 
   /** Emits one finished serial group, ahead of its members' results (SerialHost). */
   emitSerialGroup(group: SerialGroupRecord): void {
-    for (const attempt of group.attempts) {
-      for (const member of attempt.members) this.redactRecordedModels(member.steps);
-    }
     this.options.events?.onSerialGroup?.(group);
   }
 
-  /** Applies secrets learned by later attempts before accumulated provenance is emitted. */
-  private redactRecordedModels(steps: readonly StepRecord[]): void {
-    for (const step of steps) {
-      if (step.cache?.recordedBy !== undefined) step.cache.recordedBy = redactModelProvenance(step.cache.recordedBy, processSecrets.redact);
-    }
-  }
-
-  /** Streams crash-recovery progress without provenance until the shared secret ledger settles. */
+  /** Streams one member finished in a serial group attempt (SerialHost). */
   serialMemberFinished(groupId: string, attempt: SerialAttemptStart, member: SerialMemberRecord): void {
-    this.options.events?.onSerialMember?.(groupId, attempt, { ...member, steps: this.provisionalSteps(member.steps) });
+    this.options.events?.onSerialMember?.(groupId, attempt, member);
   }
 
   /** Streams one finished serial group attempt (SerialHost). */
   serialAttemptFinished(groupId: string, run: SerialAttemptRun): void {
-    const members = run.record.members.map((member) => ({ ...member, steps: this.provisionalSteps(member.steps) }));
-    this.options.events?.onSerialAttempt?.(groupId, { ...run, record: { ...run.record, members } });
-  }
-
-  /** Keeps unresolved identities out of crash-recovery snapshots without mutating final records. */
-  private provisionalSteps(steps: readonly StepRecord[]): StepRecord[] {
-    return steps.map((step) => {
-      if (step.cache?.recordedBy === undefined) return step;
-      const { recordedBy: _recordedBy, ...cache } = step.cache;
-      return { ...step, cache };
-    });
+    this.options.events?.onSerialAttempt?.(groupId, run);
   }
 
   /** Builds one engine operation context. */
@@ -488,7 +466,7 @@ export class TargetExecutor implements SerialHost {
           kind: 'ordinary',
         });
         attempts.push(attempt);
-        this.options.events?.onAttempt?.(pair, { ...attempt, steps: this.provisionalSteps(attempt.steps) });
+        this.options.events?.onAttempt?.(pair, attempt);
         if (isFailedStatus(attempt.status)) {
           // A failed realm is never reused, but afterAll still runs for every
           // scope whose beforeAll started in it. A body that skipped itself
@@ -588,7 +566,7 @@ export class TargetExecutor implements SerialHost {
         attempts.push(attempt);
         // Sent before teardown and the session saves, as in runOrdinaryPair:
         // a crash in either then lands on this attempt instead of erasing it.
-        this.options.events?.onAttempt?.(pair, { ...attempt, steps: this.provisionalSteps(attempt.steps) });
+        this.options.events?.onAttempt?.(pair, attempt);
         await this.realms.leave(realm);
         if (attempt.status === 'passed') {
           for (const [name, saved] of staging.entries()) {
@@ -1280,21 +1258,19 @@ export class TargetExecutor implements SerialHost {
     // answered implicates nothing unconfirmed, so a provider outage evicts no
     // entry.
     if (cache !== undefined) {
-      const settlement = record.status === 'interrupted' ? undefined : {
-        lastVerifiedStepIndex: failure === undefined ? steps.lastVerifiedStepIndex : lastVerifiedAtFailure,
-        implicatesUnconfirmed: failure === undefined || implicatesUnconfirmed,
-      };
-      /** Settles the member's own proof after the shared attempt has resolved its secrets. */
-      const settle = async (): Promise<void> => {
-        const writes = await settleStagedTraces(cache, settlement, redact);
-        for (const step of record.steps) {
-          if (step.cache?.recordedBy !== undefined) step.cache.recordedBy = redactModelProvenance(step.cache.recordedBy, redact);
-          const write = writes.get(step.index);
-          if (step.cache !== undefined && write !== undefined) step.cache.write = write;
-        }
-      };
-      if (shared === undefined) await settle();
-      else shared.settleCache.push(settle);
+      const writes = await settleStagedTraces(
+        cache,
+        record.status === 'interrupted'
+          ? undefined
+          : {
+              lastVerifiedStepIndex: failure === undefined ? steps.lastVerifiedStepIndex : lastVerifiedAtFailure,
+              implicatesUnconfirmed: failure === undefined || implicatesUnconfirmed,
+            },
+      );
+      for (const step of record.steps) {
+        const write = writes.get(step.index);
+        if (step.cache !== undefined && write !== undefined) step.cache.write = write;
+      }
     }
     return record;
   }

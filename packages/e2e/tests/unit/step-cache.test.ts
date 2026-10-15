@@ -1161,14 +1161,14 @@ describe('settleStagedTraces and a re-recorded flow', () => {
       await settleStagedTraces(current, { lastVerifiedStepIndex: 1, implicatesUnconfirmed: true });
     };
 
-    await flush({ ...trace('saved the record', 10_100, 1), recordedBy: { models: [{ provider: 'test', model: 'model-A' }], complete: true } });
+    await flush({ ...trace('saved the record', 10_100, 1), recordedBy: { provider: 'test', model: 'A' } });
     const written = await snapshot();
     expect(JSON.parse(written.bytes).payload.summary).toBe('saved the record');
 
     // A live run of the same flow words its summary differently and measures
     // another end wait; the file is what a replay reads, and nothing it reads changed.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    await flush({ ...trace('the record reads saved now', 10_137, 1), recordedBy: { models: [{ provider: 'test', model: 'model-B' }], complete: true } });
+    await flush({ ...trace('the record reads saved now', 10_137, 1), recordedBy: { provider: 'test', model: 'B' } });
     expect(await snapshot()).toEqual(written);
 
     // One more tap is a different flow, and the entry follows it.

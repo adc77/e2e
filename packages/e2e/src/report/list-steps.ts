@@ -4,9 +4,9 @@
  * each at its own indent, so nothing here knows where the line lands.
  */
 
+import type { StepRecord } from '../run/steps.ts';
 import { sanitizeText, truncateUtf8 } from '../internal/errors.ts';
 import { collapseText } from '../internal/text.ts';
-import type { StepRecord } from '../run/steps.ts';
 import {
   F_CHECK,
   F_CROSS,
@@ -67,19 +67,14 @@ export function stepLine(pc: Colors, step: FinishedStep, options: StepLineOption
   return `${head}${stepLabel(step.label, room)} ${tail}`;
 }
 
-/** Labels a finished recording's provenance separately from this run's model calls. */
-export function replayLine(pc: Colors, step: StepRecord): string | undefined {
+/** Identifies the recording only when its model differs from the configured model. */
+export function replayLine(pc: Colors, step: StepRecord, configuredModel: string | undefined): string | undefined {
   const cache = step.cache;
-  if (cache === undefined || (cache.mode !== 'self-finalized' && cache.replayedActions === 0)) return undefined;
-  const how = cache.mode === 'self-finalized' ? 'replayed' : `replayed ${cache.replayedActions}/${cache.totalActions} actions`;
-  const source = cache.recordedBy;
-  const provenance = source === undefined || (source.models.length === 0 && !source.complete)
-    ? 'recorded model unknown'
-    : source.models.length === 0
-      ? 'recorded without model calls'
-      : `recorded with ${fitColumns(collapseText(source.models.map((model) => `${model.provider}/${model.model}`).join(', ')), 120)}`;
-  const incomplete = source?.complete === false ? ' (incomplete provenance)' : '';
-  return `${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`${how} · ${provenance}${incomplete}`)}`;
+  const source = cache?.recordedBy;
+  if (cache === undefined || configuredModel === undefined || source === undefined || cache.replayedActions === 0) return undefined;
+  const label = `${source.provider}/${source.model}`;
+  if (label === configuredModel) return undefined;
+  return `${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`;
 }
 
 /**

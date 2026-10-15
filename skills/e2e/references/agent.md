@@ -279,6 +279,9 @@ selectors: the runner validates and authorizes every tool call first.
 
 ## The replay cache
 
+Replay reports expose the original model as `step.cache.recordedBy` when
+available; older recordings omit it. Use `--no-cache` to evaluate a new model.
+
 A passing `agent.act` saves its actions once a later check verifies the
 outcome; the next run replays them without model calls, and the live agent
 continues from the current screen when the app or final state no longer
@@ -288,10 +291,6 @@ matches. Misses and hand-offs use the model; `agent.assert`,
 - On by default (`read-write`), `read-only` in CI, off via `cache: 'off'`
   or `--no-cache`. Entries live in `.e2e/cache/`; deleting the directory
   only slows the next run.
-- Changing models still replays; use `--no-cache` to evaluate the new model.
-  `step.cache.recordedBy` identifies a recording's reported models;
-  absent metadata or `complete: false` means some identities are unknown.
-  The console labels replayed steps with their recording's models after the test finishes.
 - An entry is written only after a later verification passes (a locator or
   engine `expect` matcher, `locator.waitFor`, `browser.waitForURL`,
   `agent.assert`, `agent.waitFor`), so an unchecked `act` never replays; a

@@ -88,7 +88,8 @@ describe('TraceRecorder', () => {
     recorder.record({ name: 'typeSecret', node: passwordField, secret: 'member-password' });
     const redact = createRedactor(secrets);
     recorder.record({ name: 'tap', node: redacted({ ...upgradeButton, name: 'Greeting hunter2' }, { redact, redactCut: redact }) });
-    const trace = recorder.finalize(conclusion);
+    const trace = recorder.finalize({ ...conclusion, recordedBy: { provider: 'example', model: 'hunter2' } });
+    expect(trace?.recordedBy).toEqual({ provider: 'example', model: '<secret:member-password>' });
     const serialized = JSON.stringify(trace);
     expect(serialized).not.toContain('hunter2');
     expect(serialized).toContain('<secret:member-password>');

@@ -363,7 +363,7 @@ class ActDispatch {
 
   /** Hands the settled outcome to the cache session, which stages, evicts, or does nothing. */
   async conclude(outcome: StepOutcome): Promise<void> {
-    await this.stepCache?.conclude(outcome, this.explanation, this.accounting.modelProvenance());
+    await this.stepCache?.conclude(outcome, this.explanation, this.accounting.modelInfo(this.agent.executor));
   }
 
   /**

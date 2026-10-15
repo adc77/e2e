@@ -25,9 +25,6 @@ Follow each `act` with a check of its outcome. In `read-write` mode, the
 runner saves the recording at the end of the attempt when a later
 verification step passed.
 
-In `read-write` mode, serial groups save verified recordings after the
-shared attempt ends. Each member's checks verify only its own recordings.
-
 ```ts title="tests/cart.e2e.ts"
 import { expect, test } from 'e2e';
 
@@ -45,7 +42,8 @@ test('adds an item', async ({ app, agent, screen }) => {
 | `locator.waitFor()`, `browser.waitForURL()` | `locator.textContent()` and other reads |
 | `agent.assert(...)`, `agent.waitFor(...)` | `agent.extract(...)`, another `act`, the attempt passing |
 
-`step.cache.write` records the write outcome in the report:
+`step.cache.write`, in the report only, says what happened to the recording
+when the attempt ended:
 
 | `step.cache.write` | Meaning |
 | --- | --- |
@@ -81,7 +79,8 @@ request still open), and any other failure in the same attempt, such as an
 
 ## What must match
 
-A recording misses after any of these changes:
+A cache entry belongs to one test, target, instruction, set of params, and
+agent. Each of these changes causes a miss:
 
 - renaming the test or the target,
 - changing the instruction or an ordinary param,
@@ -91,12 +90,11 @@ A recording misses after any of these changes:
 - switching to another engine, or changing the project id or the app's
   identity.
 
-Changing the model doesn't cause a miss. Use `--no-cache` to evaluate a new
-model; a replay checks recorded actions. The report's
-[model provenance](/reference/reporters#model-provenance-in-cached-steps)
-names their source. Engine upgrades leave keys unchanged. If a node no
-longer resolves, replay misses before its first action, or hands off after
-running an action.
+Use `--no-cache` to evaluate a new model. New recordings expose their source
+as `step.cache.recordedBy` in the report; older entries omit it.
+
+Changing the model doesn't cause a miss, and neither does upgrading the
+engine: a node the new version resolves differently misses at replay.
 
 A timestamp or a fresh email address would miss on every run. Wrap such
 values in `unique()`, and the runner puts in the current value at replay:

@@ -43,8 +43,6 @@ export interface SharedSerialSession {
   readonly artifactSegments: readonly string[];
   /** Steps completed by earlier members, so later members see them as prior context. */
   readonly priorSteps: StepRecord[];
-  /** Settlements wait for every member to resolve its secrets against the shared ledger. */
-  readonly settleCache: (() => Promise<void>)[];
   /** Executor scratch memory shared by every member, as the ledger is. */
   readonly memory: Map<string, unknown>;
 }
@@ -431,7 +429,6 @@ async function runSerialAttempt(
       attemptId,
       artifactSegments,
       priorSteps: [],
-      settleCache: [],
       memory: new Map(),
     };
   } catch (cause) {
@@ -532,7 +529,6 @@ async function runSerialAttempt(
     if (failedMember.error !== undefined) record.error = failedMember.error;
   }
   await host.closeSession(shared.session, { attemptId, video: recordings.video }, record, artifacts.sink, record.secondaryErrors);
-  for (const settle of shared.settleCache) await settle();
   await artifacts.settle();
   record.durationMs = Date.now() - startedMs;
   return { record, reachedMembers: true };

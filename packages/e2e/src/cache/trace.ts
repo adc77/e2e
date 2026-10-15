@@ -1,26 +1,9 @@
-/**
- * `trace-1` entry format.
- *
- * A trace is the ordered list of grammar actions one passing `agent.act()`
- * step performed, each with a durable target descriptor and secret-free,
- * verbatim input — never model output, never plaintext secrets. An entry is
- * deliberately small: a schema version, when it was written, and the trace
- * with the provenance it had. It does not repeat its own key: the file name
- * is the key digest and a reader only ever opens the digest of the key it
- * just computed.
- *
- * Actions are a discriminated union: each variant carries exactly the typed
- * input its grammar action needs, so validation here is the one owner of
- * replayability — a document that reads back as an entry replays verbatim,
- * and a document this runner cannot replay verbatim comes back as
- * `undefined`, never as a repaired or partially trusted entry.
- */
+/** Recorded grammar actions and the validation required to replay them verbatim. */
 
 import { isKeyModifier, KEY_MODIFIERS, type KeyModifier } from '../engine/contract.ts';
 import { timestamp } from '../internal/ids.ts';
 import type { ScrollDirection } from '../types.ts';
 import { bound } from '../internal/text.ts';
-import { readModelProvenance, type ModelProvenance } from './models.ts';
 
 export const TRACE_SCHEMA_VERSION = 'trace-1';
 
@@ -381,8 +364,8 @@ export interface ActionTrace {
   readonly executor: { readonly name: string; readonly version?: string };
   /** Which test, target, and instruction recorded it; absent on older entries. */
   readonly recordedFor?: TraceProvenance;
-  /** Models reported while recording these actions; absent on older entries. */
-  readonly recordedBy?: ModelProvenance;
+  /** Model that produced the recording; absent on older entries. */
+  readonly recordedBy?: { readonly provider: string; readonly model: string };
   /** The recorded run's verdict summary. */
   readonly summary: string;
   /**
@@ -527,9 +510,10 @@ function readActionTrace(document: unknown): ActionTrace | undefined {
   const recordedForRaw = raw['recordedFor'];
   const recordedFor = recordedForRaw === undefined ? undefined : readProvenance(recordedForRaw);
   if (recordedForRaw !== undefined && recordedFor === undefined) return undefined;
-  const recordedByRaw = raw['recordedBy'];
-  const recordedBy = recordedByRaw === undefined ? undefined : readModelProvenance(recordedByRaw);
-  if (recordedByRaw !== undefined && recordedBy === undefined) return undefined;
+
+  const identity = raw['recordedBy'];
+  const recordedBy = typeof identity === 'object' && identity !== null && !Array.isArray(identity) && 'provider' in identity && typeof identity.provider === 'string' && 'model' in identity && typeof identity.model === 'string'
+    ? { provider: identity.provider, model: identity.model } : undefined;
 
   const summary = readBoundedText(raw['summary'], MAX_TRACE_SUMMARY_CHARS);
   if (summary === undefined) return undefined;

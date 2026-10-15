@@ -18,7 +18,6 @@ import { decideTraceReplay, opensWithNavigate, type TraceReplayMissReason } from
 import { sameRoute } from '../cache/route.ts';
 import { keyContextChanges, type CacheAgentIdentity } from '../cache/identity.ts';
 import { recordedProvenance, TraceRecorder } from '../cache/recorder.ts';
-import { mergeModelProvenance, redactModelProvenance, type ModelProvenance } from '../cache/models.ts';
 import { expandTrace, templateParams, templatesCollide, templateTrace, type ParamTemplate } from '../cache/template.ts';
 import { readTraceEntry, targetLabel, type ActionTrace, type DerivedReason, type TraceEntry, type TraceTargetDescriptor } from '../cache/trace.ts';
 import { sleep } from '../internal/time.ts';
@@ -157,7 +156,7 @@ export class StepTraceSession {
   private readonly options: StepCacheOptions;
   private readonly redaction: NodeRedaction;
   private info: StepCacheInfo | undefined;
-  private recordedBy: ModelProvenance | undefined;
+  private recordedBy: ActionTrace['recordedBy'];
   private prefix: ReplayedPrefix | undefined;
   private startPath: string | undefined;
   private startedMs = Date.now();
@@ -208,8 +207,7 @@ export class StepTraceSession {
 
   /** How the cache participated, for the step's report detail. */
   get cacheInfo(): StepCacheInfo | undefined {
-    if (this.info === undefined || this.recordedBy === undefined) return this.info;
-    return { ...this.info, recordedBy: redactModelProvenance(this.recordedBy, this.options.redact) };
+    return this.info === undefined || this.recordedBy === undefined ? this.info : { ...this.info, recordedBy: this.recordedBy };
   }
 
   /** The mid-step hand-off, when a replay diverged after real progress. */
@@ -339,7 +337,7 @@ export class StepTraceSession {
    *   that diverged hands off again next run, where a model that answers
    *   re-records it.
    */
-  async conclude(outcome: StepOutcome, verdictSummary: string | undefined, models?: ModelProvenance): Promise<void> {
+  async conclude(outcome: StepOutcome, verdictSummary: string | undefined, recordedBy?: ActionTrace['recordedBy']): Promise<void> {
     const recorder = this.recorder;
     if (recorder === undefined) return;
     if (this.handedOffMs !== undefined) this.executorCompletedMs = Date.now();
@@ -359,7 +357,7 @@ export class StepTraceSession {
             recordedFor: recordedProvenance(this.claim.step, this.options.redact),
           });
         } else {
-          const staged = await this.stage(recorder, verdictSummary, models);
+          const staged = await this.stage(recorder, verdictSummary, recordedBy);
           if (staged !== 'staged' && this.readEntryHit) await this.evict();
           else if (staged === 'no-change') this.cache.staged.push({ kind: 'decided', outcome: 'no-change', keyHash: this.keyHash, stepIndex: this.options.stepIndex });
         }
@@ -599,7 +597,7 @@ export class StepTraceSession {
    * does a step that changed nothing a replay could check, no node and no
    * route: a trace without its check would replay on mechanics alone.
    */
-  private async stage(recorder: TraceRecorder, verdictSummary: string | undefined, models: ModelProvenance | undefined): Promise<StageOutcome> {
+  private async stage(recorder: TraceRecorder, verdictSummary: string | undefined, recordedBy: ActionTrace['recordedBy']): Promise<StageOutcome> {
     if (!this.host.traceEligible || this.startNodes === undefined || recorder.recordedCount === 0) return 'skipped';
     const observation = await probeScreen(this.host, 'held-still');
     if (!this.host.traceEligible || observation?.kind !== 'semantic') return 'skipped';
@@ -613,9 +611,7 @@ export class StepTraceSession {
     const trace = recorder.finalize({
       executor: this.options.executor,
       recordedFor: this.claim.step,
-      ...(models === undefined ? {} : {
-        recordedBy: (this.info?.replayedActions ?? 0) > 0 ? mergeModelProvenance(this.recordedBy, models) : models,
-      }),
+      ...(recordedBy === undefined ? {} : { recordedBy }),
       summary: verdictSummary ?? 'step passed',
       ...(this.startPath === undefined ? {} : { startPath: this.startPath }),
       ...(endPath === undefined ? {} : { endPath }),
