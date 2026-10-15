@@ -61,6 +61,8 @@ Helper modules your test files import stay cached between `run` calls in the sam
 
 Test failures, config failures, and interruption resolve with their status and errors in the report. Overlapping suites reject with `RUNNER_BUSY`. Close every host before running a suite, and await the suite before opening a host.
 
+Each call sends one anonymous [`e2e_run_completed`](/telemetry) event, with the same opt-outs as the CLI.
+
 Suite output uses UTF-8 text redaction and does not preserve binary data. Your application's logs and progress callback output stay under your control.
 
 ## list

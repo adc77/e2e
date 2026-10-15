@@ -1,4 +1,9 @@
 import { AsyncResource } from 'node:async_hooks';
+import path from 'node:path';
+import { packageVersion } from '../internal/package-version.ts';
+import { runsFromCheckout } from '../telemetry/checkout.ts';
+import { runCompletedEvent } from '../telemetry/events.ts';
+import { Telemetry } from '../telemetry/telemetry.ts';
 import type { Report } from '../types.ts';
 import type { RunExitCode, RunStatus } from './events.ts';
 import { withProcessOutput } from './process-output.ts';
@@ -22,22 +27,32 @@ export interface RunResult {
 export async function runSuite(options: SuiteRunOptions = {}): Promise<RunResult> {
   const release = reserveSuiteRun();
   try {
+    const telemetry = new Telemetry({
+      version: packageVersion(import.meta.url, '../../package.json', '0.0.0'),
+      checkout: runsFromCheckout(import.meta.url),
+      cwd: path.resolve(options.cwd ?? process.cwd()),
+    });
+    telemetry.notice();
     const onEvent = options.onEvent === undefined ? undefined : AsyncResource.bind(options.onEvent);
-    return await withProcessOutput(processSecrets, async (output) => {
+    const outcome = await withProcessOutput(processSecrets, async (output) => {
       const interrupt = ownedInterrupt(options.interruptSignal);
       try {
-        const { exitCode, status, report, reportPath, aiTracePath } = await execute({
+        return await execute({
           ...toSelectionRunOptions({ cwd: options.cwd, config: options.config, files: options.files }),
           quiet: true,
           processOutput: output,
           interruptSignal: interrupt.signal,
           onEvent,
         });
-        return { exitCode, status, report, reportPath, aiTracePath };
       } finally {
         interrupt.dispose();
       }
     });
+    telemetry.record(runCompletedEvent(outcome.report, { command: 'runner.run', flags: [], config: outcome.config }));
+    // The caller's result never waits on the network; the send has its own deadline.
+    void telemetry.flush();
+    const { exitCode, status, report, reportPath, aiTracePath } = outcome;
+    return { exitCode, status, report, reportPath, aiTracePath };
   } finally {
     release();
   }
