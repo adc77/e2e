@@ -8,6 +8,7 @@ import { ListReporter } from '../../src/report/list.ts';
 import { userFrame } from '../../src/report/code-frame.ts';
 import type { RunEventFact, RunEventOf, RunEventResult } from '../../src/run/events.ts';
 import type { ResultStatus, AttemptRecord, SerialGroupRecord, SerialMemberRecord } from '../../src/run/records.ts';
+import type { StepCacheInfo } from '../../src/run/steps.ts';
 
 // eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[a-zA-Z]/g;
@@ -561,7 +562,7 @@ describe('ListReporter', () => {
         finished(result({ status: 'passed', id: 'test-2', title: ['suite', 'judges'], declarationIndex: 1, file: 'tests/a.e2e.ts', attempts: [attempt({ steps: [judged] })] })),
       );
       reporter.handle(runFinished({ reportPath: 'r.json' }));
-      expect(lines[3]).toBe('      model gateway/openai/gpt-5.6-luna · judge anthropic/claude-sonnet-4.5');
+      expect(lines[3]).toBe('      configured model gateway/openai/gpt-5.6-luna · judge anthropic/claude-sonnet-4.5');
       expect(lines).toContain('         AI  12.4k tokens · 23 model calls · typesafe-ai/jev (22 calls) · anthropic/claude-sonnet-4.5 (1 call)');
     });
 
@@ -1398,6 +1399,75 @@ function agentStepRecord(
     model: usage,
   } as unknown as AttemptRecord['steps'][number];
 }
+
+describe('cached model attribution', () => {
+  it.each([false, true])('prints the original recording model after final redaction, live=%s', (live) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter({ ...output, raw: () => {} }, live);
+    reporter.handle(runStarted({ model: 'fake-loop/model-B' }));
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }]));
+    reporter.handle(testStarted('t1', 'checkout', 'chromium', 'tests/case.e2e.ts'));
+    reporter.handle({ type: 'step', testId: 't1', agent: 'default', repeat: 0, target: 'chromium', progress: {
+      phase: 'end', kind: 'agent', api: 'agent.act', label: 'add to cart', status: 'passed', durationMs: 10, modelCalls: 0,
+    } });
+    expect(lines.join('\n')).not.toContain('recorded with');
+    const cached = agentStepRecord('add to cart', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'self-finalized', replayedActions: 2, totalActions: 2,
+      recordedBy: { models: [{ provider: 'fake-loop', model: 'model-A' }], complete: true },
+    });
+    delete cached.model;
+    reporter.handle(finished(result({ status: 'passed', title: ['checkout'], attempts: [attempt({ steps: [cached] })] })));
+    const replay = lines.find((line) => line.includes('recorded with'));
+    expect(replay).toContain('checkout > agent.act "add to cart" replayed · recorded with fake-loop/model-A');
+    expect(replay).not.toContain('model-B');
+  });
+
+  it.each([
+    { recordedBy: undefined, expected: 'recorded model unknown' },
+    { recordedBy: { models: [], complete: false }, expected: 'recorded model unknown (incomplete provenance)' },
+    { recordedBy: { models: [], complete: true }, expected: 'recorded without model calls' },
+    { recordedBy: { models: [{ provider: 'custom', model: 'first' }, { provider: 'custom', model: 'second' }], complete: false }, expected: 'recorded with custom/first, custom/second (incomplete provenance)' },
+  ])('reports historical provenance honestly: $expected', ({ recordedBy, expected }) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter(output);
+    const cache: StepCacheInfo = { mode: 'self-finalized', replayedActions: 1, totalActions: 1, ...(recordedBy === undefined ? {} : { recordedBy }) };
+    const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, cache);
+    reporter.handle(finished(result({ status: 'passed', attempts: [attempt({ steps: [cached] })] })));
+    expect(lines.join('\n')).toContain(`replayed · ${expected}`);
+  });
+
+  it('identifies a replayed prefix and sanitizes and bounds recording model labels', () => {
+    const lines: string[] = [];
+    const reporter = plainReporter({ write: (line) => lines.push(line) });
+    const cached = agentStepRecord('repair', { provider: 'live', model: 'model-B', calls: 1, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'agent-concluded', replayedActions: 1, totalActions: 2,
+      recordedBy: { models: [{ provider: 'provider\n\u001b[31m', model: 'A'.repeat(300) }], complete: true },
+    });
+    reporter.handle(finished(result({ status: 'passed', attempts: [attempt({ steps: [cached] })] })));
+    const replay = lines.find((line) => line.includes('recorded with'))!;
+    expect(replay).toContain('replayed 1/2 actions · recorded with provider /');
+    expect(replay).not.toContain('\u001b');
+    expect(replay).not.toContain('\n');
+    expect(replay).toContain('…');
+    expect(visibleWidth(replay)).toBeLessThan(220);
+  });
+
+  it('reports serial member recordings under their own test names', () => {
+    const { lines, output } = capture();
+    const reporter = plainReporter(output);
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 2 }]));
+    const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'self-finalized', replayedActions: 1, totalActions: 1,
+      recordedBy: { models: [{ provider: 'custom', model: 'model-A' }], complete: true },
+    });
+    reporter.handle(serialGroup('g1', [{ members: [serialMember('m1', { steps: [cached] }), serialMember('m2')] }]));
+    reporter.handle(finished(result({ status: 'passed', id: 'm1', title: ['wizard', 'step 1'], serialGroupId: 'g1' })));
+    reporter.handle(finished(result({ status: 'passed', id: 'm2', title: ['wizard', 'step 2'], serialGroupId: 'g1' })));
+    const replays = lines.filter((line) => line.includes('recorded with'));
+    expect(replays).toHaveLength(1);
+    expect(replays[0]).toContain('wizard > step 1 > agent.act "pay" replayed · recorded with custom/model-A');
+  });
+});
 
 describe('ListReporter goldens', () => {
   useGoldenTerminal();

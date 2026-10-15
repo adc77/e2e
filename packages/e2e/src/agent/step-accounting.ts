@@ -10,6 +10,7 @@
  */
 
 import type { OperationContext } from '../engine/surface.ts';
+import { mergeModelProvenance, readRecordedModel, type ModelProvenance } from '../cache/models.ts';
 import { timestamp } from '../internal/ids.ts';
 import type { Deadline } from '../internal/time.ts';
 import type { StepMetrics, StepModelInfo } from '../run/steps.ts';
@@ -70,6 +71,7 @@ export class StepAccounting {
   private ended = false;
   private modelProvider: string | undefined;
   private modelId: string | undefined;
+  private recordedModels: ModelProvenance = { models: [], complete: true };
   /** Whether the step is replaying a recorded trace: its actions are then a test's, not the model's. */
   private inReplay = false;
 
@@ -155,6 +157,8 @@ export class StepAccounting {
     // An executor abandoned by a hard stop can still report late; the step it
     // belonged to is closed, and the recorder's active step is now another.
     if (this.ended) return;
+    const identity = readRecordedModel({ provider: usage?.provider, model: usage?.modelId });
+    this.recordedModels = mergeModelProvenance(this.recordedModels, identity === undefined ? undefined : { models: [identity], complete: true });
     const tokens = this.usage.record(usage);
     if (usage?.provider !== undefined) this.modelProvider = usage.provider;
     if (usage?.modelId !== undefined) this.modelId = usage.modelId;
@@ -259,5 +263,10 @@ export class StepAccounting {
       },
       calls,
     );
+  }
+
+  /** Returns model identities from reported calls, never from the configured model. */
+  modelProvenance(): ModelProvenance {
+    return this.recordedModels;
   }
 }

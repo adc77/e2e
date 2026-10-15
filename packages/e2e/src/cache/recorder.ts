@@ -35,6 +35,7 @@ import {
   type TraceTargetDescriptor,
 } from './trace.ts';
 import { bound } from '../internal/text.ts';
+import { redactModelProvenance, type ModelProvenance } from './models.ts';
 
 /** The summary a run-time value gap records; the prose a project-tool gap would carry for a tool of that name. */
 const DERIVED_GAP_SUMMARY = 'tool type (run-time value)';
@@ -106,6 +107,7 @@ export class TraceRecorder {
     readonly executor: { readonly name: string; readonly version?: string };
     /** Test, target, and instruction digest the trace was recorded for. */
     readonly recordedFor: TraceProvenance;
+    readonly recordedBy?: ModelProvenance;
     readonly summary: string;
     readonly startPath?: string;
     readonly endPath?: string;
@@ -133,6 +135,7 @@ export class TraceRecorder {
         ...(conclusion.executor.version === undefined ? {} : { version: conclusion.executor.version }),
       },
       recordedFor: recordedProvenance(conclusion.recordedFor, this.redact),
+      ...(conclusion.recordedBy === undefined ? {} : { recordedBy: redactModelProvenance(conclusion.recordedBy, this.redact) }),
       summary: summary.trim() === '' ? 'step passed' : summary,
       ...(startPath === undefined ? {} : { startPath }),
       ...(endPath === undefined ? {} : { endPath }),

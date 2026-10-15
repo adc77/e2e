@@ -143,6 +143,10 @@
                 "cache": {
                   "mode": "missed",
                   "reason": "gap",
+                  "recordedBy": {
+                    "models": [{ "provider": "test", "model": "recording-model" }],
+                    "complete": true
+                  },
                   "derived": "minted-token",
                   "replayedActions": 0,
                   "totalActions": 2,

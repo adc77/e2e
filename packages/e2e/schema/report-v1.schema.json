@@ -227,12 +227,34 @@
         "pixelBytes": { "type": "integer", "minimum": 0 }
       }
     },
+    "modelProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["models", "complete"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "models": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["provider", "model"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "\\S" },
+              "model": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "\\S" }
+            }
+          }
+        }
+      }
+    },
     "stepCache": {
       "type": "object",
       "additionalProperties": false,
       "required": ["mode", "replayedActions", "totalActions"],
       "properties": {
         "mode": { "enum": ["self-finalized", "agent-concluded", "missed"] },
+        "recordedBy": { "$ref": "#/$defs/modelProvenance" },
         "reason": {
           "enum": [
             "retry",

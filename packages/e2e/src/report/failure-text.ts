@@ -357,12 +357,20 @@ function cacheLine(cache: StepCacheRecord, cacheDir: string | undefined): string
         : `no replay: ${CACHE_REASON_TEXT[cache.reason ?? 'no-entry']}`;
   const parts = [
     `cache: ${how}`,
+    ...(cache.recordedBy === undefined ? [] : [recordedModelsLine(cache.recordedBy)]),
     ...(cache.detail === undefined ? [] : [cell(cache.detail, MAX_DETAIL_CHARS)]),
     ...(cache.write === undefined ? [] : [CACHE_WRITE_TEXT[cache.write]]),
     ...(cache.notRecorded === 'param-collision' ? ['nothing recorded: a unique() value collides with another param'] : []),
   ];
   const entry = cache.entry === undefined || cacheDir === undefined ? '' : ` (${code(`${cacheDir}/${cache.entry}.json`, MAX_PATH_CHARS)})`;
   return `${parts.join('; ')}${entry}`;
+}
+
+/** Names recording provenance without attributing its historical calls to this run. */
+function recordedModelsLine(source: NonNullable<StepCacheInfo['recordedBy']>): string {
+  const names = source.models.map((model) => code(`${model.provider}/${model.model}`, MAX_DETAIL_CHARS)).join(', ');
+  const description = names === '' ? source.complete ? 'no model calls' : 'unknown' : names;
+  return `recorded models: ${description}${source.complete ? '' : ' (incomplete provenance)'}`;
 }
 
 function eventLine(event: StepEvent): string {

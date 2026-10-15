@@ -12,7 +12,7 @@ import type { SerializedError } from '../internal/errors.ts';
 import { resultId } from '../internal/ids.ts';
 import { packageVersion } from '../internal/package-version.ts';
 import type { RunEvent, RunEventFact, RunEventOf, RunEventResult, SetupStep } from '../run/events.ts';
-import type { AppLogRecord } from '../run/steps.ts';
+import type { AppLogRecord, StepRecord } from '../run/steps.ts';
 import { failureBeforeSkip, type ArtifactRecord, type AttemptRecord, type FailureEvidence, type ResultStatus, type SerialGroupRecord } from '../run/records.ts';
 import type { Reporter, ReporterSummary } from '../types.ts';
 import { codeFrame, userFrame } from './code-frame.ts';
@@ -55,7 +55,7 @@ import {
 } from './format.ts';
 import { ExploreView } from './list-explore.ts';
 import { isShownEvent, type FileGroup, type RunningTest, type TestLine } from './list-model.ts';
-import { stepLine } from './list-steps.ts';
+import { replayLine, stepLine } from './list-steps.ts';
 import { LiveWindow } from './live-window.ts';
 import { repeatGroups, repeatLine, repeatSummary, type RepeatRun } from './repeats.ts';
 import { RunningTree } from './running-tree.ts';
@@ -102,6 +102,7 @@ function pairKey(testId: string, agent: string, target: string, repeat: number):
 
 /** What a test line and a failure entry need from a result's execution. */
 interface ResultDetails {
+  readonly steps: readonly StepRecord[];
   readonly durationMs: number;
   readonly usage: AiUsage;
   /** The models its steps reported, with their call counts. */
@@ -136,6 +137,7 @@ function attemptDetails(attempts: readonly AttemptRecord[]): ResultDetails {
   // A retry the run interrupted tells nothing; the failure before it is the verdict.
   const told = attempts.findLast((attempt) => attempt.status !== 'interrupted') ?? attempts.at(-1);
   return {
+    steps: steps.flat(),
     durationMs: attempts.reduce((total, attempt) => total + attempt.durationMs, 0),
     usage: stepsUsage(steps),
     models: stepsModelTally(steps),
@@ -187,6 +189,7 @@ function serialMemberDetails(group: SerialGroupRecord, testId: string): ResultDe
   const neverRan = own === undefined || own.status === 'skipped';
   const steps = runs.map((run) => run.member?.steps ?? []);
   return {
+    steps: steps.flat(),
     durationMs: runs.reduce((total, run) => total + (run.member?.durationMs ?? 0), 0),
     usage: stepsUsage(steps),
     models: stepsModelTally(steps),
@@ -509,7 +512,7 @@ export class ListReporter implements Reporter {
     if (event.model !== undefined) {
       this.models = bounded(event.model);
       if (event.judge !== undefined) this.models += ` · judge ${bounded(event.judge)}`;
-      this.print(BADGE_PADDING + pc.dim(`model ${this.models}`));
+      this.print(BADGE_PADDING + pc.dim(`configured model ${this.models}`));
     }
     this.print('');
     this.window.start();
@@ -702,7 +705,7 @@ export class ListReporter implements Reporter {
     // Read before `detailsOf` releases the result's serial group.
     const skippedAfter = failureBeforeSkip(result, (id) => this.pendingSerial.get(id)?.group);
     const id = resultId(result.test.id, result.target.name, result.agent, result.repeat);
-    const { durationMs, usage, models, cache, error, videos, failure, screenPath, appLog, skipReason } = this.detailsOf(result);
+    const { steps: recordedSteps, durationMs, usage, models, cache, error, videos, failure, screenPath, appLog, skipReason } = this.detailsOf(result);
     addUsage(this.runUsage, usage);
     addModelTally(this.runModels, models);
     addCacheTally(this.runCache, cache);
@@ -715,6 +718,10 @@ export class ListReporter implements Reporter {
       }
       this.window.redraw();
       return;
+    }
+    for (const recorded of recordedSteps) {
+      const replay = replayLine(this.pc, recorded);
+      if (replay !== undefined) this.print(`${TEST_INDENT}${this.pc.dim(title)}${this.separator}${replay}`);
     }
     const line: TestLine = {
       title,
@@ -869,7 +876,7 @@ export class ListReporter implements Reporter {
       ];
     const ai = usageText(this.runUsage);
     if (ai !== undefined) {
-      const models = modelsText(this.runModels) ?? this.models;
+      const models = this.runUsage.calls === 0 ? undefined : modelsText(this.runModels) ?? this.models;
       rows.push(padTitle(pc, 'AI') + `${ai} · ${this.runUsage.calls} model calls${models === undefined ? '' : ` · ${models}`}`);
     }
     const cache = cacheText(pc, this.runCache);

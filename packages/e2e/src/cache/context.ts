@@ -30,6 +30,7 @@ import type { StoredRecordings } from './rekeyed.ts';
 import { FileCacheStore, MAX_CACHE_WIRE_BYTES, type CacheStore } from './store.ts';
 import type { ActionTrace, TraceKeyContext, TraceProvenance } from './trace.ts';
 import type { JsonValue } from '../types.ts';
+import { redactModelProvenance } from './models.ts';
 
 /**
  * One cache entry held back until the attempt confirms or implicates it: a
@@ -128,7 +129,7 @@ async function holdsSameFlow(store: CacheStore, keyHash: string, trace: ActionTr
 
 /** The part of a trace that decides what a replay does, as canonical JSON. */
 function flowOf(trace: ActionTrace): string {
-  const { summary: _summary, endWaitMs: _endWaitMs, keyedBy: _keyedBy, actions, ...flow } = trace;
+  const { summary: _summary, endWaitMs: _endWaitMs, keyedBy: _keyedBy, recordedBy: _recordedBy, actions, ...flow } = trace;
   return canonicalJson({
     ...flow,
     actions: actions.map((action) => {
@@ -185,7 +186,7 @@ export interface AttemptSettlement {
  * so the same rule evicts it when nothing confirmed it; when something did,
  * it is left exactly as it was found, but for provenance it lacked.
  */
-export async function settleStagedTraces(context: AgentCacheContext, settlement: AttemptSettlement | undefined): Promise<ReadonlyMap<number, CacheWrite>> {
+export async function settleStagedTraces(context: AgentCacheContext, settlement: AttemptSettlement | undefined, redact?: (text: string) => string): Promise<ReadonlyMap<number, CacheWrite>> {
   const outcomes = new Map<number, CacheWrite>();
   const staged = context.staged.splice(0);
   for (const entry of staged) {
@@ -213,7 +214,10 @@ export async function settleStagedTraces(context: AgentCacheContext, settlement:
         outcomes.set(entry.stepIndex, 'kept');
         continue;
       }
-      const written = await context.store.write(entry.keyHash, entry.trace);
+      const trace = entry.trace.recordedBy === undefined || redact === undefined
+        ? entry.trace
+        : { ...entry.trace, recordedBy: redactModelProvenance(entry.trace.recordedBy, redact) };
+      const written = await context.store.write(entry.keyHash, trace);
       outcomes.set(entry.stepIndex, written === undefined ? 'not-written' : 'saved');
     } catch {
       // The cache is disposable; a failed flush is a slower next run only.

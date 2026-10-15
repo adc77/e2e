@@ -20,6 +20,7 @@ import { isKeyModifier, KEY_MODIFIERS, type KeyModifier } from '../engine/contra
 import { timestamp } from '../internal/ids.ts';
 import type { ScrollDirection } from '../types.ts';
 import { bound } from '../internal/text.ts';
+import { readModelProvenance, type ModelProvenance } from './models.ts';
 
 export const TRACE_SCHEMA_VERSION = 'trace-1';
 
@@ -380,6 +381,8 @@ export interface ActionTrace {
   readonly executor: { readonly name: string; readonly version?: string };
   /** Which test, target, and instruction recorded it; absent on older entries. */
   readonly recordedFor?: TraceProvenance;
+  /** Models reported while recording these actions; absent on older entries. */
+  readonly recordedBy?: ModelProvenance;
   /** The recorded run's verdict summary. */
   readonly summary: string;
   /**
@@ -524,6 +527,9 @@ function readActionTrace(document: unknown): ActionTrace | undefined {
   const recordedForRaw = raw['recordedFor'];
   const recordedFor = recordedForRaw === undefined ? undefined : readProvenance(recordedForRaw);
   if (recordedForRaw !== undefined && recordedFor === undefined) return undefined;
+  const recordedByRaw = raw['recordedBy'];
+  const recordedBy = recordedByRaw === undefined ? undefined : readModelProvenance(recordedByRaw);
+  if (recordedByRaw !== undefined && recordedBy === undefined) return undefined;
 
   const summary = readBoundedText(raw['summary'], MAX_TRACE_SUMMARY_CHARS);
   if (summary === undefined) return undefined;
@@ -563,6 +569,7 @@ function readActionTrace(document: unknown): ActionTrace | undefined {
       ...(executorVersion === undefined ? {} : { version: executorVersion }),
     },
     ...(recordedFor === undefined ? {} : { recordedFor }),
+    ...(recordedBy === undefined ? {} : { recordedBy }),
     summary,
     ...(startPath === undefined ? {} : { startPath }),
     ...(endPath === undefined ? {} : { endPath }),

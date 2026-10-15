@@ -545,7 +545,10 @@ describe('trace cache: modes', () => {
       const second = await runExisting(project, options(inCi, { ...process.env, APP_URL: app.url, CI: '1' }));
       expect(second.exitCode).toBe(0);
       expect(inCi.calls).toBe(0);
-      expect(actStep(second).cache).toEqual({ mode: 'self-finalized', replayedActions: 2, totalActions: 2, entry: expect.stringMatching(/^[0-9a-f]{64}$/u) });
+      expect(actStep(second).cache).toEqual({
+        mode: 'self-finalized', replayedActions: 2, totalActions: 2,
+        entry: expect.stringMatching(/^[0-9a-f]{64}$/u), recordedBy: { models: [], complete: true },
+      });
       expect(entryFileState(project)).toEqual(legacy);
     } finally {
       project.cleanup();
@@ -612,6 +615,7 @@ describe('trace cache: --strict-cache never writes the cache', () => {
           replayedActions: 2,
           totalActions: 2,
           entry,
+          recordedBy: { models: [], complete: true },
         });
       }
       expect(entryFileState(project)).toEqual(recorded);

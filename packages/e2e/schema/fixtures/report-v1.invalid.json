@@ -37,7 +37,13 @@
                 "startedAt": "2026-07-24T12:00:00.100Z",
                 "durationMs": 10,
                 "status": "passed",
-                "reasoning": 42
+                "reasoning": 42,
+                "cache": {
+                  "mode": "self-finalized",
+                  "replayedActions": 1,
+                  "totalActions": 1,
+                  "recordedBy": { "models": [{ "provider": "test", "model": 42 }], "complete": "yes" }
+                }
               },
               {
                 "id": "018f0f5c-7b2a-7abc-8abc-0123456789ab:1",

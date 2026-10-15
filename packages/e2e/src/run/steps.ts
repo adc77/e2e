@@ -5,6 +5,7 @@ import { isAgentError } from '../agent/error.ts';
 import type { ReplayHandOffReason } from '../agent/executor.ts';
 import type { CacheWrite } from '../cache/context.ts';
 import type { TraceReplayMissReason } from '../cache/decide.ts';
+import type { ModelProvenance } from '../cache/models.ts';
 import type { DerivedReason } from '../cache/trace.ts';
 import { bound } from '../internal/text.ts';
 import { markAbandonedRejection, relocateStack } from '../internal/abandoned.ts';
@@ -114,6 +115,8 @@ export interface StepModelInfo {
  * `missed` means the executor ran the step from the top.
  */
 export interface StepCacheInfo {
+  /** Model provenance of the consulted recording, separate from this run's live model calls. */
+  recordedBy?: ModelProvenance;
   mode: 'self-finalized' | 'agent-concluded' | 'missed';
   /** The miss or hand-off reason token; absent on `self-finalized`. */
   reason?: TraceReplayMissReason | ReplayHandOffReason;
