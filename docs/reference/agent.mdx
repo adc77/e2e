@@ -457,6 +457,8 @@ export interface ActResult {
  * `missed` means the executor ran the step from the top.
  */
 export interface StepCacheInfo {
+  /** Configured model when the consulted entry was recorded; absent on older entries. */
+  recordedBy?: { readonly provider: string; readonly model: string };
   mode: 'self-finalized' | 'agent-concluded' | 'missed';
   /** The miss or hand-off reason token; absent on `self-finalized`. */
   reason?: TraceReplayMissReason | ReplayHandOffReason;

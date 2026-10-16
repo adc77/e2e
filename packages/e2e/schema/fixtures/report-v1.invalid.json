@@ -54,7 +54,6 @@
                 "startedAt": "2026-07-24T12:00:00.000Z",
                 "durationMs": 1000,
                 "events": [],
-                "cache": { "mode": "self-finalized", "replayedActions": 1, "totalActions": 1, "recordedBy": { "provider": "example", "model": 123 } },
                 "metrics": {
                   "modelCalls": 1,
                   "actionSteps": 0,

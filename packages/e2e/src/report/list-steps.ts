@@ -13,6 +13,7 @@ import {
   fitColumns,
   formatTime,
   formatTokens,
+  recordedModelLabel,
   terminalColumns,
   visibleWidth,
   type Colors,
@@ -67,14 +68,20 @@ export function stepLine(pc: Colors, step: FinishedStep, options: StepLineOption
   return `${head}${stepLabel(step.label, room)} ${tail}`;
 }
 
-/** Identifies the recording only when its model differs from the configured model. */
-export function replayLine(pc: Colors, step: StepRecord, configuredModel: string | undefined): string | undefined {
-  const cache = step.cache;
-  const source = cache?.recordedBy;
-  if (cache === undefined || configuredModel === undefined || source === undefined || cache.replayedActions === 0) return undefined;
-  const label = `${source.provider}/${source.model}`;
-  if (label === configuredModel) return undefined;
-  return `${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`;
+/** Recording mismatches under one test, deduplicated across its attempts. */
+export function replayLines(pc: Colors, attempts: readonly (readonly StepRecord[])[], configured: { readonly label: string; readonly agent: string } | undefined): string[] {
+  if (configured === undefined) return [];
+  const lines = new Set<string>();
+  for (const steps of attempts) {
+    for (const step of steps) {
+      if (step.agent !== undefined && step.agent !== configured.agent) continue;
+      const source = step.cache?.recordedBy;
+      if (source === undefined || step.cache?.replayedActions === 0) continue;
+      const label = recordedModelLabel(source);
+      if (label !== configured.label) lines.add(`${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`);
+    }
+  }
+  return [...lines];
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   type ActionTrace,
   type DerivedReason,
   type RecordedAction,
+  type RecordedModel,
   type ScrollAction,
   type TraceKeyContext,
   type TraceProvenance,
@@ -107,7 +108,7 @@ export class TraceRecorder {
     readonly executor: { readonly name: string; readonly version?: string };
     /** Test, target, and instruction digest the trace was recorded for. */
     readonly recordedFor: TraceProvenance;
-    readonly recordedBy?: ActionTrace['recordedBy'];
+    readonly recordedBy?: RecordedModel;
     readonly summary: string;
     readonly startPath?: string;
     readonly endPath?: string;

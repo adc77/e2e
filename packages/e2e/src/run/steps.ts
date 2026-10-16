@@ -5,7 +5,7 @@ import { isAgentError } from '../agent/error.ts';
 import type { ReplayHandOffReason } from '../agent/executor.ts';
 import type { CacheWrite } from '../cache/context.ts';
 import type { TraceReplayMissReason } from '../cache/decide.ts';
-import type { ActionTrace, DerivedReason } from '../cache/trace.ts';
+import type { RecordedModel, DerivedReason } from '../cache/trace.ts';
 import { bound } from '../internal/text.ts';
 import { markAbandonedRejection, relocateStack } from '../internal/abandoned.ts';
 import { withAiTraceStep } from '../internal/ai-trace.ts';
@@ -114,8 +114,8 @@ export interface StepModelInfo {
  * `missed` means the executor ran the step from the top.
  */
 export interface StepCacheInfo {
-  /** Model that produced the consulted recording; absent on older entries. */
-  recordedBy?: NonNullable<ActionTrace['recordedBy']>;
+  /** Configured model when the consulted entry was recorded; absent on older entries. */
+  recordedBy?: RecordedModel;
   mode: 'self-finalized' | 'agent-concluded' | 'missed';
   /** The miss or hand-off reason token; absent on `self-finalized`. */
   reason?: TraceReplayMissReason | ReplayHandOffReason;

@@ -40,6 +40,14 @@ const conclusion = {
 };
 
 describe('TraceRecorder', () => {
+  it.each(['provider', 'model'] as const)('omits an oversized recorded %s', (field) => {
+    const recorder = makeRecorder();
+    recorder.record({ name: 'tap', node: upgradeButton });
+    const trace = recorder.finalize({ ...conclusion, recordedBy: { provider: 'test', model: 'A', [field]: 'x'.repeat(301) } });
+    expect(trace).toBeDefined();
+    expect(trace?.recordedBy).toBeUndefined();
+  });
+
   it.each([{ provider: '', model: 'A' }, { provider: 'test', model: '  ' }])('omits blank recording identity %j', (recordedBy) => {
     const recorder = makeRecorder();
     recorder.record({ name: 'tap', node: upgradeButton });

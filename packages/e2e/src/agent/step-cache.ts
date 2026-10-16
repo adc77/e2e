@@ -19,7 +19,7 @@ import { sameRoute } from '../cache/route.ts';
 import { keyContextChanges, type CacheAgentIdentity } from '../cache/identity.ts';
 import { recordedProvenance, TraceRecorder } from '../cache/recorder.ts';
 import { expandTrace, templateParams, templatesCollide, templateTrace, type ParamTemplate } from '../cache/template.ts';
-import { readTraceEntry, targetLabel, type ActionTrace, type DerivedReason, type TraceEntry, type TraceTargetDescriptor } from '../cache/trace.ts';
+import { readTraceEntry, targetLabel, type ActionTrace, type DerivedReason, type RecordedModel, type TraceEntry, type TraceTargetDescriptor } from '../cache/trace.ts';
 import { sleep } from '../internal/time.ts';
 import type { StepCacheInfo } from '../run/steps.ts';
 import type { JsonValue } from '../types.ts';
@@ -156,7 +156,7 @@ export class StepTraceSession {
   private readonly options: StepCacheOptions;
   private readonly redaction: NodeRedaction;
   private info: StepCacheInfo | undefined;
-  private recordedBy: ActionTrace['recordedBy'];
+  private recordedBy: RecordedModel | undefined;
   private prefix: ReplayedPrefix | undefined;
   private startPath: string | undefined;
   private startedMs = Date.now();
@@ -337,7 +337,7 @@ export class StepTraceSession {
    *   that diverged hands off again next run, where a model that answers
    *   re-records it.
    */
-  async conclude(outcome: StepOutcome, verdictSummary: string | undefined, recordedBy?: ActionTrace['recordedBy']): Promise<void> {
+  async conclude(outcome: StepOutcome, verdictSummary: string | undefined, recordedBy?: RecordedModel): Promise<void> {
     const recorder = this.recorder;
     if (recorder === undefined) return;
     if (this.handedOffMs !== undefined) this.executorCompletedMs = Date.now();
@@ -597,7 +597,7 @@ export class StepTraceSession {
    * does a step that changed nothing a replay could check, no node and no
    * route: a trace without its check would replay on mechanics alone.
    */
-  private async stage(recorder: TraceRecorder, verdictSummary: string | undefined, recordedBy: ActionTrace['recordedBy']): Promise<StageOutcome> {
+  private async stage(recorder: TraceRecorder, verdictSummary: string | undefined, recordedBy: RecordedModel | undefined): Promise<StageOutcome> {
     if (!this.host.traceEligible || this.startNodes === undefined || recorder.recordedCount === 0) return 'skipped';
     const observation = await probeScreen(this.host, 'held-still');
     if (!this.host.traceEligible || observation?.kind !== 'semantic') return 'skipped';

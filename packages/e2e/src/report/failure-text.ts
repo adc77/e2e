@@ -14,7 +14,7 @@ import type { AppLogSource } from '../engine/index.ts';
 import type { AppLogRecord, StepCacheInfo, StepCacheRecord, StepEvent, StepTurn } from '../run/steps.ts';
 import type { Report1Document, ReportError, ReportResult, ReportSource, ReportStep } from './build.ts';
 import { cell, code, formatDuration, link, MAX_CELL_CHARS, MAX_ID_CHARS, MAX_LABEL_CHARS, MAX_PATH_CHARS, MAX_TITLE_CHARS, plural } from './markdown-text.ts';
-import { repeatSuffix } from './format.ts';
+import { recordedModelLabel, repeatSuffix } from './format.ts';
 import type { AttemptView, Outcome } from './outcome.ts';
 
 type ReportArtifact = ReportResult['attempts'][number]['artifacts'][number];
@@ -357,7 +357,7 @@ function cacheLine(cache: StepCacheRecord, cacheDir: string | undefined): string
         : `no replay: ${CACHE_REASON_TEXT[cache.reason ?? 'no-entry']}`;
   const parts = [
     `cache: ${how}`,
-    ...(cache.recordedBy === undefined ? [] : [`recorded with ${code(`${cache.recordedBy.provider}/${cache.recordedBy.model}`, MAX_DETAIL_CHARS)}`]),
+    ...(cache.recordedBy === undefined ? [] : [`recorded with ${code(recordedModelLabel(cache.recordedBy), MAX_DETAIL_CHARS)}`]),
     ...(cache.detail === undefined ? [] : [cell(cache.detail, MAX_DETAIL_CHARS)]),
     ...(cache.write === undefined ? [] : [CACHE_WRITE_TEXT[cache.write]]),
     ...(cache.notRecorded === 'param-collision' ? ['nothing recorded: a unique() value collides with another param'] : []),

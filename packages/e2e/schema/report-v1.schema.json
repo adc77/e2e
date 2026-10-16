@@ -237,7 +237,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["provider", "model"],
-          "properties": { "provider": { "type": "string", "minLength": 1, "pattern": "\\S" }, "model": { "type": "string", "minLength": 1, "pattern": "\\S" } }
+          "properties": { "provider": { "type": "string", "maxLength": 300, "pattern": "\\S" }, "model": { "type": "string", "maxLength": 300, "pattern": "\\S" } }
         },
         "reason": {
           "enum": [

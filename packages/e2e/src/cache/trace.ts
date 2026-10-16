@@ -1,4 +1,20 @@
-/** Recorded grammar actions and the validation required to replay them verbatim. */
+/**
+ * `trace-1` entry format.
+ *
+ * A trace is the ordered list of grammar actions one passing `agent.act()`
+ * step performed, each with a durable target descriptor and secret-free,
+ * verbatim input — never model output, never plaintext secrets. An entry is
+ * deliberately small: a schema version, when it was written, and the trace
+ * with the provenance it had. It does not repeat its own key: the file name
+ * is the key digest and a reader only ever opens the digest of the key it
+ * just computed.
+ *
+ * Actions are a discriminated union: each variant carries exactly the typed
+ * input its grammar action needs, so validation here is the one owner of
+ * replayability — a document that reads back as an entry replays verbatim,
+ * and a document this runner cannot replay verbatim comes back as
+ * `undefined`, never as a repaired or partially trusted entry.
+ */
 
 import { isKeyModifier, KEY_MODIFIERS, type KeyModifier } from '../engine/contract.ts';
 import { timestamp } from '../internal/ids.ts';
@@ -358,14 +374,20 @@ export type RecordedAction =
   | DismissKeyboardAction
   | ToolGapAction;
 
+/** The configured model identity attached to a recording. */
+export interface RecordedModel {
+  readonly provider: string;
+  readonly model: string;
+}
+
 export interface ActionTrace {
   readonly actions: readonly RecordedAction[];
   /** Executor that produced the trace: provenance, never part of the key, which names the agent instead. */
   readonly executor: { readonly name: string; readonly version?: string };
   /** Which test, target, and instruction recorded it; absent on older entries. */
   readonly recordedFor?: TraceProvenance;
-  /** Model that produced the recording; absent on older entries. */
-  readonly recordedBy?: { readonly provider: string; readonly model: string };
+  /** Configured model when recorded; absent on older or unattributed entries. */
+  readonly recordedBy?: RecordedModel;
   /** The recorded run's verdict summary. */
   readonly summary: string;
   /**
@@ -987,9 +1009,10 @@ function readTypedValue(value: unknown): string | undefined {
 }
 
 /** Reads optional model attribution without making malformed metadata a replay failure. */
-export function readRecordedModel(value: unknown): ActionTrace['recordedBy'] {
+export function readRecordedModel(value: unknown): RecordedModel | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const { provider, model } = value as Record<string, unknown>;
-  return typeof provider === 'string' && provider.trim() !== '' && typeof model === 'string' && model.trim() !== ''
-    ? { provider, model } : undefined;
+  const raw = value as Record<string, unknown>;
+  const provider = readBoundedText(raw['provider'], MAX_TRACE_DESCRIPTOR_CHARS);
+  const model = readBoundedText(raw['model'], MAX_TRACE_DESCRIPTOR_CHARS);
+  return provider === undefined || model === undefined ? undefined : { provider, model };
 }

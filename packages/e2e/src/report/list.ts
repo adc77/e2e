@@ -55,7 +55,7 @@ import {
 } from './format.ts';
 import { ExploreView } from './list-explore.ts';
 import { isShownEvent, type FileGroup, type RunningTest, type TestLine } from './list-model.ts';
-import { replayLine, stepLine } from './list-steps.ts';
+import { replayLines, stepLine } from './list-steps.ts';
 import { LiveWindow } from './live-window.ts';
 import { repeatGroups, repeatLine, repeatSummary, type RepeatRun } from './repeats.ts';
 import { RunningTree } from './running-tree.ts';
@@ -102,7 +102,7 @@ function pairKey(testId: string, agent: string, target: string, repeat: number):
 
 /** What a test line and a failure entry need from a result's execution. */
 interface ResultDetails {
-  readonly steps: readonly StepRecord[];
+  readonly steps: readonly (readonly StepRecord[])[];
   readonly durationMs: number;
   readonly usage: AiUsage;
   /** The models its steps reported, with their call counts. */
@@ -137,7 +137,7 @@ function attemptDetails(attempts: readonly AttemptRecord[]): ResultDetails {
   // A retry the run interrupted tells nothing; the failure before it is the verdict.
   const told = attempts.findLast((attempt) => attempt.status !== 'interrupted') ?? attempts.at(-1);
   return {
-    steps: steps.flat(),
+    steps,
     durationMs: attempts.reduce((total, attempt) => total + attempt.durationMs, 0),
     usage: stepsUsage(steps),
     models: stepsModelTally(steps),
@@ -189,7 +189,7 @@ function serialMemberDetails(group: SerialGroupRecord, testId: string): ResultDe
   const neverRan = own === undefined || own.status === 'skipped';
   const steps = runs.map((run) => run.member?.steps ?? []);
   return {
-    steps: steps.flat(),
+    steps,
     durationMs: runs.reduce((total, run) => total + (run.member?.durationMs ?? 0), 0),
     usage: stepsUsage(steps),
     models: stepsModelTally(steps),
@@ -721,12 +721,9 @@ export class ListReporter implements Reporter {
       this.window.redraw();
       return;
     }
-    const configured = this.configuredModel?.agent === result.agent ? this.configuredModel.label : undefined;
-    for (const step of recordedSteps) {
-      const replay = replayLine(this.pc, step, configured);
-      if (replay !== undefined) this.print(`${TEST_INDENT}${this.pc.dim(title)}${this.separator}${replay}`);
-    }
+    const configured = this.configuredModel?.agent === result.agent ? this.configuredModel : undefined;
     const line: TestLine = {
+      replays: replayLines(this.pc, recordedSteps, configured),
       title,
       declarationIndex: result.test.declarationIndex,
       status: result.status,
@@ -817,12 +814,14 @@ export class ListReporter implements Reporter {
       counts.interrupted > 0 ||
       counts.flaky > 0 ||
       this.groups.size === 1 ||
+      group.lines.some((line) => line.replays.length > 0) ||
       (this.live && group.lines.some((line) => line.steps.length > 0));
     if (!verbose) return;
     const ordered = group.lines.toSorted((a, b) => a.declarationIndex - b.declarationIndex);
     for (const line of ordered) {
       for (const rendered of this.testLine(line)) this.print(rendered);
       for (const step of line.steps) this.print(`${STEP_INDENT}${stepLine(pc, step)}`);
+      for (const replay of line.replays) this.print(`${STEP_INDENT}${replay}`);
     }
   }
 

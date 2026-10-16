@@ -74,7 +74,8 @@ A name and at least one handler are required; anything else is
 Cached steps expose `cache.recordedBy: { provider, model }` in `report.json`
 and the trace page when the recording has it. Older recordings omit it.
 The console prints `replayed · recorded with provider/model` only when that
-identity differs from the configured model.
+identity differs from the configured model. It stays quiet for multi-agent
+runs and pinned agents whose model is not in the run header.
 
 ## The event stream
 

@@ -70,6 +70,7 @@ export interface RunningTest {
 
 /** One finished pair, held until its file's block prints. */
 export interface TestLine {
+  readonly replays: readonly string[];
   readonly title: string;
   /** Source order within the file; blocks list tests as declared, not as finished. */
   readonly declarationIndex: number;

@@ -1400,6 +1400,52 @@ function agentStepRecord(
 }
 
 describe('recording model mismatch', () => {
+  it.each([false, true])('stays quiet for a per-call pinned agent, live=%s', (live) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter({ ...output, raw: () => {} }, live);
+    reporter.handle(runStarted({ model: 'example/B' }));
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }]));
+    const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'self-finalized', replayedActions: 1, totalActions: 1, recordedBy: { provider: 'example', model: 'A' },
+    });
+    cached.agent = 'buyer';
+    reporter.handle(finished(result({ status: 'passed', agent: 'default', attempts: [attempt({ steps: [cached] })] })));
+    expect(lines.filter((line) => line.includes('recorded with'))).toEqual([]);
+  });
+
+  it.each([false, true])('keeps serial retry notices in their file block among multiple files, live=%s', (live) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter({ ...output, raw: () => {} }, live);
+    reporter.handle(runStarted({ model: 'example/B' }));
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }, { file: 'tests/other.e2e.ts', tests: 1 }]));
+    const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'self-finalized', replayedActions: 1, totalActions: 1, recordedBy: { provider: 'example', model: 'A' },
+    });
+    reporter.handle(serialGroup('serial', [{ members: [serialMember('test-1', { steps: [cached] })] }, { members: [serialMember('test-1', { steps: [cached] })] }]));
+    reporter.handle(finished(result({ status: 'passed', serialGroupId: 'serial' })));
+    reporter.handle(finished(result({ status: 'passed', id: 'other', file: 'tests/other.e2e.ts' })));
+    const notices = lines.filter((line) => line.includes('recorded with'));
+    expect(notices).toHaveLength(1);
+    const at = lines.indexOf(notices[0]!);
+    expect(at).toBeGreaterThan(lines.findIndex((line) => line.includes('tests/case.e2e.ts')));
+    expect(at).toBeLessThan(lines.findIndex((line) => line.includes('tests/other.e2e.ts')));
+  });
+
+  it.each([false, true])('deduplicates retries inside the file block, live=%s', (live) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter({ ...output, raw: () => {} }, live);
+    reporter.handle(runStarted({ model: 'example/B' }));
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }]));
+    const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+      mode: 'self-finalized', replayedActions: 1, totalActions: 1, recordedBy: { provider: 'example', model: 'A' },
+    });
+    reporter.handle(finished(result({ status: 'flaky', attempts: [attempt({ status: 'failed', steps: [cached] }), attempt({ index: 1, steps: [cached] })] })));
+    const notices = lines.filter((line) => line.includes('recorded with'));
+    expect(notices).toHaveLength(1);
+    expect(lines.indexOf(notices[0]!)).toBeGreaterThan(lines.findIndex((line) => line.includes('tests/case.e2e.ts')));
+    expect(notices[0]).toMatch(/^     /u);
+  });
+
   it.each([false, true])('prints only known mismatches and preserves the header, live=%s', (live) => {
     for (const [configured, recorded, agent, expected] of [
       ['example/B', 'A', 'default', true], ['example/A', 'A', 'default', false],
@@ -1409,6 +1455,7 @@ describe('recording model mismatch', () => {
       const { lines, output } = capture();
       const reporter = plainReporter({ ...output, raw: () => {} }, live);
       reporter.handle(runStarted(configured === undefined ? {} : { model: configured }));
+      reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }]));
       const cached = agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
         mode: 'self-finalized', replayedActions: 1, totalActions: 1,
         ...(recorded === undefined ? {} : { recordedBy: { provider: 'example', model: recorded } }),
