@@ -9,12 +9,6 @@ import picocolors from 'picocolors';
 import { sanitizeText, truncateUtf8 } from '../internal/errors.ts';
 import type { ResultStatus } from '../run/records.ts';
 import type { StepModelInfo, StepRecord } from '../run/steps.ts';
-import type { RecordedModel } from '../cache/trace.ts';
-
-/** The recording's configured model as reports name it. */
-export function recordedModelLabel(model: RecordedModel): string {
-  return `${model.provider}/${model.model}`;
-}
 
 /** A picocolors instance; the reporter decides whether it emits color. */
 export type Colors = ReturnType<typeof picocolors.createColors>;

@@ -26,7 +26,6 @@ import {
   MAX_TRACE_INPUT_CHARS,
   MAX_TRACE_SUMMARY_CHARS,
   isNodeAction,
-  readRecordedModel,
   type ActionTrace,
   type DerivedReason,
   type RecordedAction,
@@ -36,6 +35,7 @@ import {
   type TraceProvenance,
   type TraceTargetDescriptor,
 } from './trace.ts';
+import { readRecordedModel } from './trace-fields.ts';
 import { bound } from '../internal/text.ts';
 
 /** The summary a run-time value gap records; the prose a project-tool gap would carry for a tool of that name. */
@@ -123,7 +123,7 @@ export class TraceRecorder {
   }): ActionTrace | undefined {
     if (this.actions.length === 0) return undefined;
     const source = conclusion.recordedBy;
-    const recordedBy = source === undefined ? undefined : readRecordedModel({ provider: this.redact(source.provider), model: this.redact(source.model) });
+    const recordedBy = source === undefined ? undefined : readRecordedModel({ provider: this.redact(source.provider), model: this.redact(source.model) }, MAX_TRACE_DESCRIPTOR_CHARS);
     const summary = bound(this.redact(conclusion.summary), MAX_TRACE_SUMMARY_CHARS);
     // Locations are replay preconditions, so they follow the input rule: a
     // path the redactor alters carried a secret (a token in a query string),

@@ -114,8 +114,6 @@ export interface StepModelInfo {
  * `missed` means the executor ran the step from the top.
  */
 export interface StepCacheInfo {
-  /** Configured model when the consulted entry was recorded; absent on older entries. */
-  recordedBy?: RecordedModel;
   mode: 'self-finalized' | 'agent-concluded' | 'missed';
   /** The miss or hand-off reason token; absent on `self-finalized`. */
   reason?: TraceReplayMissReason | ReplayHandOffReason;
@@ -141,6 +139,8 @@ export interface StepCacheInfo {
    * screen the recording started on against the one the step did.
    */
   detail?: string;
+  /** Configured model when the consulted entry was recorded; absent on older entries. */
+  recordedBy?: RecordedModel;
 }
 
 /** The cache detail as the report keeps it: what `agent.act()` returns, and what became of the recording once the attempt settled. */

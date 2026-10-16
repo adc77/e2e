@@ -5,6 +5,7 @@
  */
 
 import type { StepRecord } from '../run/steps.ts';
+import { modelLabel } from '../config/agent.ts';
 import { sanitizeText, truncateUtf8 } from '../internal/errors.ts';
 import { collapseText } from '../internal/text.ts';
 import {
@@ -13,15 +14,16 @@ import {
   fitColumns,
   formatTime,
   formatTokens,
-  recordedModelLabel,
   terminalColumns,
   visibleWidth,
   type Colors,
 } from './format.ts';
-import type { FinishedStep, ShownEvent } from './list-model.ts';
+import type { ConfiguredModel, FinishedStep, ReplayNotice, ShownEvent } from './list-model.ts';
 
 /** Step labels stay one glanceable line; the report holds the full text. */
 const MAX_STEP_LABEL_COLUMNS = 72;
+/** Recording model labels stay on one bounded terminal line. */
+const MAX_RECORDED_MODEL_COLUMNS = 120;
 /** A clipped step line keeps at least this much of its label, however narrow the terminal. */
 const MIN_STEP_LABEL_COLUMNS = 24;
 /** Columns a step line spends around its label: the quotes and the space before the tail. */
@@ -69,21 +71,27 @@ export function stepLine(pc: Colors, step: FinishedStep, options: StepLineOption
 }
 
 /** Recording mismatches under one test, deduplicated across its attempts. */
-export function replayLines(pc: Colors, attempts: readonly (readonly StepRecord[])[], configured: { readonly label: string; readonly agent: string } | undefined): string[] {
+export function replayNotices(attempts: readonly (readonly StepRecord[])[], configured: ConfiguredModel | undefined): ReplayNotice[] {
   if (configured === undefined) return [];
-  const lines = new Map<string, string>();
+  const notices = new Map<string, ReplayNotice>();
   for (const steps of attempts) {
     for (const step of steps) {
       if (step.agent !== undefined && step.agent !== configured.agent) continue;
       const source = step.cache?.recordedBy;
       if (source === undefined || step.cache?.replayedActions === 0) continue;
-      const label = recordedModelLabel(source);
+      const label = modelLabel({ provider: source.provider, id: source.model });
       if (label === configured.label) continue;
       const key = JSON.stringify([step.cache?.entry ?? [step.index, step.api, step.label], source.provider, source.model]);
-      lines.set(key, `${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`);
+      notices.set(key, { api: step.api, label: step.label, source });
     }
   }
-  return [...lines.values()];
+  return [...notices.values()];
+}
+
+/** A recording mismatch under its test in the file block. */
+export function replayLine(pc: Colors, notice: ReplayNotice): string {
+  const label = modelLabel({ provider: notice.source.provider, id: notice.source.model });
+  return `${pc.dim(notice.api)} ${stepLabel(notice.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), MAX_RECORDED_MODEL_COLUMNS)}`)}`;
 }
 
 /**

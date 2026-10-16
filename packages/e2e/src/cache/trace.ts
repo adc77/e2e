@@ -20,6 +20,9 @@ import { isKeyModifier, KEY_MODIFIERS, type KeyModifier } from '../engine/contra
 import { timestamp } from '../internal/ids.ts';
 import type { ScrollDirection } from '../types.ts';
 import { bound } from '../internal/text.ts';
+import { readBoundedText, readRecordedModel, type RecordedModel } from './trace-fields.ts';
+
+export type { RecordedModel } from './trace-fields.ts';
 
 export const TRACE_SCHEMA_VERSION = 'trace-1';
 
@@ -374,12 +377,6 @@ export type RecordedAction =
   | DismissKeyboardAction
   | ToolGapAction;
 
-/** The configured model identity attached to a recording. */
-export interface RecordedModel {
-  readonly provider: string;
-  readonly model: string;
-}
-
 export interface ActionTrace {
   readonly actions: readonly RecordedAction[];
   /** Executor that produced the trace: provenance, never part of the key, which names the agent instead. */
@@ -533,7 +530,7 @@ function readActionTrace(document: unknown): ActionTrace | undefined {
   const recordedFor = recordedForRaw === undefined ? undefined : readProvenance(recordedForRaw);
   if (recordedForRaw !== undefined && recordedFor === undefined) return undefined;
 
-  const recordedBy = readRecordedModel(raw['recordedBy']);
+  const recordedBy = readRecordedModel(raw['recordedBy'], MAX_TRACE_DESCRIPTOR_CHARS);
 
   const summary = readBoundedText(raw['summary'], MAX_TRACE_SUMMARY_CHARS);
   if (summary === undefined) return undefined;
@@ -982,13 +979,6 @@ function readProvenance(document: unknown): TraceProvenance | undefined {
   };
 }
 
-function readBoundedText(value: unknown, maxChars: number): string | undefined {
-  if (typeof value !== 'string' || value.trim() === '' || value.length > maxChars) {
-    return undefined;
-  }
-  return value;
-}
-
 /** One to `MAX_TRACE_UPLOAD_PATHS` verbatim paths, each a replay input like a typed value. */
 function readInputPaths(value: unknown): readonly string[] | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_TRACE_UPLOAD_PATHS) return undefined;
@@ -1006,13 +996,4 @@ function readInputText(value: unknown): string | undefined {
 /** A typed value: `readInputText`, except that `''` is valid, since typing it clears a field. */
 function readTypedValue(value: unknown): string | undefined {
   return value === '' ? value : readInputText(value);
-}
-
-/** Reads optional model attribution without making malformed metadata a replay failure. */
-export function readRecordedModel(value: unknown): RecordedModel | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const raw = value as Record<string, unknown>;
-  const provider = readBoundedText(raw['provider'], MAX_TRACE_DESCRIPTOR_CHARS);
-  const model = readBoundedText(raw['model'], MAX_TRACE_DESCRIPTOR_CHARS);
-  return provider === undefined || model === undefined ? undefined : { provider, model };
 }
