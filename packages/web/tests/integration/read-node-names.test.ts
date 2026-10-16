@@ -209,6 +209,9 @@ describe('names from content and precedence', () => {
       <span id="ignored">Ignored content</span><span id="reference">Referenced name</span>
       <button aria-owns="restored" data-testid="restored"></button>
       <span style="visibility:hidden"><span id="restored" style="visibility:visible">Restored visibility</span></span>
+      <button aria-labelledby="hidden-reference" data-testid="hidden-reference"></button>
+      <span id="hidden-reference" hidden aria-owns="reference-owned">Hidden </span>
+      <span id="reference-owned" hidden>reference</span>
     `);
     const { tree } = await capture();
     const byTestId = new Map(flatten(tree).map((node) => [node.testId, node]));
@@ -217,6 +220,7 @@ describe('names from content and precedence', () => {
       ['label', 'Explicit name'],
       ['labelledby', 'Referenced name'],
       ['restored', 'Restored visibility'],
+      ['hidden-reference', 'Hidden reference'],
     ] as const) {
       expect(byTestId.get(testId), testId).toMatchObject({ role: 'button', name });
       expect(await locatedTestId('button', name), name).toBe(testId);
@@ -276,23 +280,26 @@ describe('names from content and precedence', () => {
     expect(await locatedTestId('button', 'Save Owned')).toBe('skipped-owner');
   });
 
-  it('excludes owned text hidden by a slot in a closed shadow root', async () => {
+  it('reads owned text through visible closed slots and excludes hidden slots and details', async () => {
     await page.addInitScript(CLOSED_SHADOW_ROOTS_INIT_SCRIPT);
     await page.goto('about:blank');
-    await page.setContent(`
-      <button aria-owns="hidden-owned" data-testid="hidden-slot">Save </button>
-      <x-hidden><span id="hidden-owned">Hidden</span></x-hidden>
-      <button aria-owns="visible-owned" data-testid="visible-slot">Save </button>
-      <x-visible><span id="visible-owned">Visible</span></x-visible>
-    `);
-    await page.evaluate(() => {
-      document.querySelector('x-hidden')!.attachShadow({ mode: 'closed' }).innerHTML = '<slot style="display:none"></slot>';
-      document.querySelector('x-visible')!.attachShadow({ mode: 'closed' }).innerHTML = '<slot></slot>';
-    });
+    const cases = [
+      ['hidden', '<slot style="display:none"></slot>', 'Save'],
+      ['visible', '<slot></slot>', 'Save Owned'],
+      ['details', '<details><summary>More</summary><slot></slot></details>', 'Save'],
+      ['summary', '<details><summary><slot></slot></summary></details>', 'Save Owned'],
+      ['skipped', '<div style="content-visibility:hidden"><slot></slot></div>', 'Save'],
+    ] as const;
+    await page.setContent(cases.map(([id]) => `
+      <button aria-owns="${id}-owned" data-testid="${id}">Save </button>
+      <x-host id="${id}-host"><span id="${id}-owned">Owned</span></x-host>
+    `).join(''));
+    await page.evaluate((roots) => {
+      for (const [id, html] of roots) document.getElementById(`${id}-host`)!.attachShadow({ mode: 'closed' }).innerHTML = html;
+    }, cases);
     const { tree } = await capture();
     const byTestId = new Map(flatten(tree).map((node) => [node.testId, node]));
-    expect(byTestId.get('hidden-slot')).toMatchObject({ role: 'button', name: 'Save' });
-    expect(byTestId.get('visible-slot')).toMatchObject({ role: 'button', name: 'Save Visible' });
+    for (const [id, , name] of cases) expect(byTestId.get(id), id).toMatchObject({ role: 'button', name });
   });
 
   it('names a control from its descendants the way the role selector does: aria-label, alt, content, then title', async () => {
