@@ -26,6 +26,7 @@ import {
   MAX_TRACE_INPUT_CHARS,
   MAX_TRACE_SUMMARY_CHARS,
   isNodeAction,
+  readRecordedModel,
   type ActionTrace,
   type DerivedReason,
   type RecordedAction,
@@ -120,6 +121,8 @@ export class TraceRecorder {
     readonly keyedBy?: TraceKeyContext;
   }): ActionTrace | undefined {
     if (this.actions.length === 0) return undefined;
+    const source = conclusion.recordedBy;
+    const recordedBy = source === undefined ? undefined : readRecordedModel({ provider: this.redact(source.provider), model: this.redact(source.model) });
     const summary = bound(this.redact(conclusion.summary), MAX_TRACE_SUMMARY_CHARS);
     // Locations are replay preconditions, so they follow the input rule: a
     // path the redactor alters carried a secret (a token in a query string),
@@ -134,9 +137,7 @@ export class TraceRecorder {
         ...(conclusion.executor.version === undefined ? {} : { version: conclusion.executor.version }),
       },
       recordedFor: recordedProvenance(conclusion.recordedFor, this.redact),
-      ...(conclusion.recordedBy === undefined ? {} : { recordedBy: {
-        provider: this.redact(conclusion.recordedBy.provider), model: this.redact(conclusion.recordedBy.model),
-      } }),
+      ...(recordedBy === undefined ? {} : { recordedBy }),
       summary: summary.trim() === '' ? 'step passed' : summary,
       ...(startPath === undefined ? {} : { startPath }),
       ...(endPath === undefined ? {} : { endPath }),

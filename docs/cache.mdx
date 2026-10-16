@@ -90,8 +90,9 @@ agent. Each of these changes causes a miss:
 - switching to another engine, or changing the project id or the app's
   identity.
 
-Use `--no-cache` to evaluate a new model. New recordings expose their source
-as `step.cache.recordedBy` in the report; older entries omit it.
+Use `--no-cache` to evaluate a new model. Replays expose
+`step.cache.recordedBy` when the entry has provenance; older or unattributed
+entries omit it.
 
 Changing the model doesn't cause a miss, and neither does upgrading the
 engine: a node the new version resolves differently misses at replay.

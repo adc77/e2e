@@ -199,7 +199,7 @@ describe.each(schemas)('%s schema', (name) => {
     it('validates recording identities while keeping legacy reports valid', () => {
       const report = readJson('fixtures', 'report-v1.valid.json') as { run: { results: { attempts: { steps: { cache?: Record<string, unknown> }[] }[] }[] } };
       const cache = report.run.results[0]!.attempts[0]!.steps[0]!.cache!;
-      for (const recordedBy of [null, { provider: 'test' }, { provider: 'test', model: 1 }, { provider: 'test', model: 'A', calls: 1 }]) {
+      for (const recordedBy of [null, { provider: '', model: 'A' }, { provider: 'test', model: '  ' }, { provider: 'test' }, { provider: 'test', model: 1 }, { provider: 'test', model: 'A', calls: 1 }]) {
         cache['recordedBy'] = recordedBy;
         expect(validate(report)).toBe(false);
       }

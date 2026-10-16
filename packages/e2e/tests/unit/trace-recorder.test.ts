@@ -40,6 +40,12 @@ const conclusion = {
 };
 
 describe('TraceRecorder', () => {
+  it.each([{ provider: '', model: 'A' }, { provider: 'test', model: '  ' }])('omits blank recording identity %j', (recordedBy) => {
+    const recorder = makeRecorder();
+    recorder.record({ name: 'tap', node: upgradeButton });
+    expect(recorder.finalize({ ...conclusion, recordedBy })?.recordedBy).toBeUndefined();
+  });
+
   it('poisons a trace whose target is an unnamed twin no named row tells apart, and keeps one that a row does', () => {
     const icon = redacted({ ref: { id: 'i', revision: 'r1' }, role: 'button' });
     const orphan = makeRecorder();

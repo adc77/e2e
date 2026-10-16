@@ -511,9 +511,7 @@ function readActionTrace(document: unknown): ActionTrace | undefined {
   const recordedFor = recordedForRaw === undefined ? undefined : readProvenance(recordedForRaw);
   if (recordedForRaw !== undefined && recordedFor === undefined) return undefined;
 
-  const identity = raw['recordedBy'];
-  const recordedBy = typeof identity === 'object' && identity !== null && !Array.isArray(identity) && 'provider' in identity && typeof identity.provider === 'string' && 'model' in identity && typeof identity.model === 'string'
-    ? { provider: identity.provider, model: identity.model } : undefined;
+  const recordedBy = readRecordedModel(raw['recordedBy']);
 
   const summary = readBoundedText(raw['summary'], MAX_TRACE_SUMMARY_CHARS);
   if (summary === undefined) return undefined;
@@ -986,4 +984,12 @@ function readInputText(value: unknown): string | undefined {
 /** A typed value: `readInputText`, except that `''` is valid, since typing it clears a field. */
 function readTypedValue(value: unknown): string | undefined {
   return value === '' ? value : readInputText(value);
+}
+
+/** Reads optional model attribution without making malformed metadata a replay failure. */
+export function readRecordedModel(value: unknown): ActionTrace['recordedBy'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { provider, model } = value as Record<string, unknown>;
+  return typeof provider === 'string' && provider.trim() !== '' && typeof model === 'string' && model.trim() !== ''
+    ? { provider, model } : undefined;
 }

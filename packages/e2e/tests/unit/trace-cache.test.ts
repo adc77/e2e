@@ -49,6 +49,10 @@ function entryOf(payload: ActionTrace): TraceEntry {
 }
 
 describe('trace-1 entry', () => {
+  it.each([{ provider: '', model: 'A' }, { provider: 'test', model: '' }, { provider: ' ', model: 'A' }, { provider: 'test', model: '  ' }])('ignores blank recording identity %j without losing the hit', (recordedBy) => {
+    expect(entryOf(trace({ recordedBy })).payload.recordedBy).toBeUndefined();
+  });
+
   it('round-trips every action variant through JSON', () => {
     const target = { role: 'textbox', name: 'Email' };
     const actions: RecordedAction[] = [
