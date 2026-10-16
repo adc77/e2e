@@ -555,6 +555,16 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
     return role === 'menu' ? '' : null;
   };
 
+  /** Direct aria-owns targets, resolved in the owner's tree scope. */
+  const ariaOwnedElementsOf = (el: Element): Element[] => {
+    const owned: Element[] = [];
+    for (const id of (el.getAttribute('aria-owns') ?? '').trim().split(/\s+/)) {
+      const target = id === '' ? null : referencedElementOf(el, id);
+      if (target !== null) owned.push(target);
+    }
+    return owned;
+  };
+
   /**
    * Every element under `el` and every element its `aria-owns` names, with
    * theirs: what a composite widget owns, as Playwright's role selector
@@ -562,9 +572,8 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
    */
   const ariaOwnedOf = (el: Element): Element[] => {
     const owned = Array.from(el.querySelectorAll('*'));
-    for (const id of (el.getAttribute('aria-owns') ?? '').trim().split(/\s+/)) {
-      const target = id === '' ? null : referencedElementOf(el, id);
-      if (target !== null) owned.push(target, ...Array.from(target.querySelectorAll('*')));
+    for (const target of ariaOwnedElementsOf(el)) {
+      owned.push(target, ...Array.from(target.querySelectorAll('*')));
     }
     return owned;
   };
@@ -603,6 +612,29 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
     return title === null ? '' : title.trim();
   };
 
+  /** The assigned slot, including one inside a tracked closed shadow root. */
+  const assignedSlotOf = memoized((el: Element): HTMLSlotElement | null => {
+    if (el.assignedSlot !== null) return el.assignedSlot;
+    const shadow = el.parentElement === null ? null : shadowRootOf(el.parentElement);
+    if (shadow === null) return null;
+    for (const slot of Array.from(shadow.querySelectorAll('slot'))) {
+      if (slot.assignedNodes().includes(el)) return slot;
+    }
+    return null;
+  });
+
+  /** Ancestors hidden from name computation, which a direct aria-owns reference would otherwise bypass. */
+  const isNameHiddenByAncestor = memoized((el: Element): boolean => {
+    const parent = assignedSlotOf(el) ?? parentOrHostOf(el);
+    return parent !== null && (
+      (parent.getAttribute('aria-hidden') ?? '').toLowerCase() === 'true' ||
+      styleOf(parent)?.display === 'none' ||
+      styleOf(parent)?.getPropertyValue('content-visibility') === 'hidden' ||
+      isInClosedDetails(parent) ||
+      isNameHiddenByAncestor(parent)
+    );
+  });
+
   /**
    * The children's contributions joined as Playwright's role selector joins
    * them: a space on each side of a block-level child and of a `<br>`, none
@@ -614,7 +646,15 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
    */
   const childrenNameOf = (el: Element, walk: NameWalk): string => {
     let out = walk.accessible ? beforeContentOf(el) : '';
-    for (const child of contentChildrenOf(el)) {
+    const children = contentChildrenOf(el);
+    if (walk.accessible && !(el instanceof HTMLSlotElement && el.assignedNodes().length > 0)) {
+      for (const owned of ariaOwnedElementsOf(el)) {
+        if (owned.assignedSlot !== null) continue;
+        if (!walk.hiddenAllowed && (isNameHiddenByAncestor(owned) || isInClosedDetails(owned) || isSkippedContent(owned))) continue;
+        children.push(owned);
+      }
+    }
+    for (const child of children) {
       if (child.nodeType === 3) {
         out += child.nodeValue ?? '';
         continue;
