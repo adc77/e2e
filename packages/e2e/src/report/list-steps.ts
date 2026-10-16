@@ -71,17 +71,19 @@ export function stepLine(pc: Colors, step: FinishedStep, options: StepLineOption
 /** Recording mismatches under one test, deduplicated across its attempts. */
 export function replayLines(pc: Colors, attempts: readonly (readonly StepRecord[])[], configured: { readonly label: string; readonly agent: string } | undefined): string[] {
   if (configured === undefined) return [];
-  const lines = new Set<string>();
+  const lines = new Map<string, string>();
   for (const steps of attempts) {
     for (const step of steps) {
       if (step.agent !== undefined && step.agent !== configured.agent) continue;
       const source = step.cache?.recordedBy;
       if (source === undefined || step.cache?.replayedActions === 0) continue;
       const label = recordedModelLabel(source);
-      if (label !== configured.label) lines.add(`${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`);
+      if (label === configured.label) continue;
+      const key = JSON.stringify([step.cache?.entry ?? [step.index, step.api, step.label], source.provider, source.model]);
+      lines.set(key, `${pc.dim(step.api)} ${stepLabel(step.label)} ${pc.dim(`replayed · recorded with ${fitColumns(collapseText(label), 120)}`)}`);
     }
   }
-  return [...lines];
+  return [...lines.values()];
 }
 
 /**

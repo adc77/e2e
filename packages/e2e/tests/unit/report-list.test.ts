@@ -1400,6 +1400,22 @@ function agentStepRecord(
 }
 
 describe('recording model mismatch', () => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])('keeps distinct recordings with the same label, live=%s, entry=%s', (live, hasEntry) => {
+    const { lines, output } = capture();
+    const reporter = plainReporter({ ...output, raw: () => {} }, live);
+    reporter.handle(runStarted({ model: 'example/B' }));
+    reporter.handle(plan([{ file: 'tests/case.e2e.ts', tests: 1 }]));
+    const steps = [0, 1].map((index) => ({
+      ...agentStepRecord('pay', { provider: 'unused', model: 'unused', calls: 0, inputTokens: 0, outputTokens: 0 }, {
+        mode: 'self-finalized', replayedActions: 1, totalActions: 1, recordedBy: { provider: 'example', model: 'A' },
+        ...(hasEntry ? { entry: `recording-${index}` } : {}),
+      }),
+      index,
+    }));
+    reporter.handle(finished(result({ status: 'flaky', attempts: [attempt({ status: 'failed', steps }), attempt({ index: 1, steps })] })));
+    expect(lines.filter((line) => line.includes('recorded with'))).toHaveLength(2);
+  });
+
   it.each([false, true])('stays quiet for a per-call pinned agent, live=%s', (live) => {
     const { lines, output } = capture();
     const reporter = plainReporter({ ...output, raw: () => {} }, live);
