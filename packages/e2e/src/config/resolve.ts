@@ -296,7 +296,7 @@ export function resolveConfig(
   const { agents, agentNames, agent } = resolveAgents(raw.agents, cli.agents);
   const limits = runLimits(agents.values());
   const { cache, source: cacheSource } = resolveCacheConfig(raw, ci, options.projectRoot, cli, env);
-  const output = resolveOutput(raw.output, cli.output, options.projectRoot, cache.dir, cacheSource, tests, keepResults);
+  const output = resolveOutput(raw.output, cli.output, options.projectRoot, cache.dir, cacheSource, tests);
 
   const resolved: ResolvedConfig = {
     projectId,
@@ -465,7 +465,7 @@ function expandHome(value: string): string {
 }
 
 /** The directories under the output a run clears or owns, which nothing else may live in. */
-const OUTPUT_OWNED_DIRS = ['results', 'sessions', 'videos'] as const;
+const OUTPUT_OWNED_DIRS = ['results', 'sessions', 'videos', 'history'] as const;
 
 /** Whether `inner` is `outer` or a path below it. */
 function isWithin(inner: string, outer: string): boolean {
@@ -500,7 +500,6 @@ function resolveOutput(
   cacheDir: string,
   cacheSource: CacheDirSource,
   tests: readonly string[],
-  keepResults: number,
 ): string {
   const where = flag === undefined ? 'output' : '--output';
   const value: unknown = flag ?? configured;
@@ -526,7 +525,7 @@ function resolveOutput(
     );
   }
   if (isWithin(real, cache)) refuse(`is the cache directory ${path.relative(root, cache)} or inside it; keep results and the replay cache apart`);
-  for (const owned of [...OUTPUT_OWNED_DIRS, ...(keepResults > 0 ? ['history'] : [])]) {
+  for (const owned of OUTPUT_OWNED_DIRS) {
     if (isWithin(cache, realpathOfExisting(path.join(output, owned)))) {
       refuse(`would hold ${cacheSource} ${path.relative(root, cache)} under ${owned}/, which the run owns; move ${cacheSource} or the output`);
     }

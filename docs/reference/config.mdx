@@ -481,7 +481,7 @@ owns part of it, the output directory fails the config load with
 - is a file, or a path under one (a missing directory is created);
 - is the cache directory (`cache.dir`, `--cache-dir`, or `E2E_CACHE_DIR`) or
   inside it, or would hold it under `results/`, `sessions/`, `videos/`, or
-  `history/` when `keepResults` is enabled;
+  `history/`;
 - holds a directory a `tests` glob scans (`output: 'tests'` with the default
   `tests/**/*.e2e.ts`).
 
@@ -524,8 +524,7 @@ downloads. Only snapshots marked as owned by e2e are pruned. A symlink,
 foreign history directory, or failed copy prints a diagnostic without
 changing the test verdict or deleting earlier snapshots. Partial snapshots
 left by an exited process are removed on the next run with history enabled.
-Normal output
-and `--last-failed` continue to use the current `report.json` and `results/`.
+Normal output and `--last-failed` continue to use the current `report.json` and `results/`.
 
 ## artifacts
 

@@ -53,14 +53,15 @@ describe('CI mode', () => {
 });
 
 describe('resolveConfig', () => {
-  it('validates bounded run history without invalidating recordings or reserving cache paths when disabled', () => {
+  it('validates bounded run history without invalidating recordings and always reserves its output directory', () => {
     expect(resolve({}).keepResults).toBe(0);
     expect(resolve({ keepResults: 3 }).keepResults).toBe(3);
     expect(resolve({ keepResults: 3 }).configDigest).toBe(resolve({}).configDigest);
     for (const value of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '3', null, true]) {
       expect(() => resolve(invalid({ keepResults: value }))).toThrow(/keepResults must be an integer/);
     }
-    expect(() => resolve({ cache: { dir: '.e2e/history/cache' } })).not.toThrow();
+    expect(() => resolve({ cache: { dir: '.e2e/history/cache' } })).toThrow(/under history/);
+    expect(() => resolve({ keepResults: 0, cache: { dir: '.e2e/history/cache' } })).toThrow(/under history/);
     expect(() => resolve({ keepResults: 1, cache: { dir: '.e2e/history/cache' } })).toThrow(/under history/);
   });
 
