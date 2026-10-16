@@ -109,18 +109,21 @@ describe('visibility where Playwright reads a range box alone', () => {
   });
 });
 
-describe('visibility through tracked closed slots', () => {
+describe('visibility through shadow slots', () => {
   it.each([
-    ['skipped content', '<div style="content-visibility:hidden"><slot></slot></div>', true],
-    ['closed details', '<details><summary>More</summary><slot></slot></details>', true],
-    ['a closed details summary', '<details><summary><slot></slot></summary></details>', false],
-    ['open details', '<details open><summary>More</summary><slot></slot></details>', false],
-    ['nested closed details', '<details><summary>Outer</summary><details open><summary><slot></slot></summary></details></details>', true],
-  ])('%s', async (_case, html, hidden) => {
+    ['closed', 'skipped content', '<div style="content-visibility:hidden"><slot></slot></div>', true],
+    ['closed', 'closed details', '<details><summary>More</summary><slot></slot></details>', true],
+    ['open', 'closed details', '<details><summary>More</summary><slot></slot></details>', true],
+    ['closed', 'a closed details summary', '<details><summary><slot></slot></summary></details>', false],
+    ['closed', 'open details', '<details open><summary>More</summary><slot></slot></details>', false],
+    ['closed', 'nested closed details', '<details><summary>Outer</summary><details open><summary><slot></slot></summary></details></details>', true],
+  ] as const)('%s root: %s', async (mode, _case, html, hidden) => {
     await page.addInitScript(CLOSED_SHADOW_ROOTS_INIT_SCRIPT);
     await page.goto('about:blank');
     await page.setContent('<x-host><button data-testid="slotted">Slotted</button></x-host>');
-    await page.evaluate((content) => { document.querySelector('x-host')!.attachShadow({ mode: 'closed' }).innerHTML = content; }, html);
+    await page.evaluate(({ content, rootMode }) => {
+      document.querySelector('x-host')!.attachShadow({ mode: rootMode }).innerHTML = content;
+    }, { content: html, rootMode: mode });
     const button = page.getByTestId('slotted');
     const raw = await button.evaluate(readSemanticsFunction<typeof READ_OPTIONS.mode>, READ_OPTIONS);
     expect(raw.states.hidden).toBe(hidden);

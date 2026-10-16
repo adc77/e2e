@@ -670,6 +670,7 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
     const shadow = shadowRootOf(el);
     let children = Array.from(el.childNodes);
     if (shadow !== null) {
+      // Read assignments from the root's slots because closed roots hide each child's assignedSlot.
       const slotted = new Set<Node>();
       for (const slot of Array.from(shadow.querySelectorAll('slot'))) {
         for (const node of slot.assignedNodes()) slotted.add(node);
@@ -679,7 +680,7 @@ export const readSemanticsFunction = <Mode extends SemanticMode>(
     }
     if (walk.accessible) {
       for (const owned of ariaOwnedElementsOf(el)) {
-        // Match Playwright's open-slot skip; tracked closed slots are filtered through flatParentOf.
+        // Playwright skips targets in open slots and cannot see closed ones; closed-slotted targets stay for the hidden checks below.
         if (owned.assignedSlot !== null) continue;
         if (!walk.hiddenAllowed && (isNameHiddenByAncestor(owned) || isInClosedDetails(owned) || isSkippedContent(owned))) continue;
         children.push(owned);
