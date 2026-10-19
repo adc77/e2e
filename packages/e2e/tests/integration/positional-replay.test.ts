@@ -31,6 +31,8 @@ describe('explicit positional replay through the built runner', () => {
   let items: string[];
   let selected: string | undefined;
   let showTitle = false;
+  let remount: 'hover' | 'prepare' | undefined;
+  let replacementItems = ['Gamma', 'Delta', 'Epsilon'];
 
   beforeAll(async () => {
     server = createServer((request, response) => {
@@ -39,22 +41,34 @@ describe('explicit positional replay through the built runner', () => {
         response.end('ok');
         return;
       }
+      const rows = (titles: readonly string[]) => titles.map((title) => `<li><span>${title}</span><div tabindex="0" role="group" data-testid="inbox-item" data-title="${title}">Open</div></li>`).join('');
       response.setHeader('Content-Type', 'text/html');
       response.end(`<!doctype html><html lang="en"><title>Inbox</title><body>
         <h1>Your inbox</h1><button data-testid="prepare">Prepare</button>
         <div draggable="true" role="button" aria-label="Card" data-testid="card">Card</div>
-        <ul>${items.map((title) => `<li><span>${title}</span><div tabindex="0" role="group" data-testid="inbox-item" data-title="${title}">Open</div></li>`).join('')}</ul>
+        <ul>${rows(items)}</ul>
         <p role="status">Waiting</p><script>
-        document.querySelector('button').onclick = () => document.querySelector('[role="status"]').textContent = 'Ready';
+        let remounted = false;
+        function remountRows() {
+          if (remounted) return;
+          remounted = true;
+          document.querySelector('ul').innerHTML = ${JSON.stringify(rows(replacementItems))};
+          bindRows();
+        }
+        document.querySelector('button').onclick = () => {
+          document.querySelector('[role="status"]').textContent = 'Ready';
+          if (${JSON.stringify(remount)} === 'prepare') remountRows();
+        };
         document.querySelector('[data-testid="card"]').ondragstart = (event) => event.dataTransfer.setData('text/plain', 'card');
-        document.querySelectorAll('[data-testid="inbox-item"]').forEach((row) => {
+        function bindRows() { document.querySelectorAll('[data-testid="inbox-item"]').forEach((row) => {
+          if (${JSON.stringify(remount)} === 'hover') row.onpointerenter = remountRows;
           row.ondragover = (event) => event.preventDefault();
           row.onclick = row.ondrop = async (event) => {
           event.preventDefault();
           await fetch('/selected?title=' + encodeURIComponent(row.dataset.title));
           document.querySelector('ul').remove();
           document.querySelector('[role="status"]').textContent = ${showTitle ? "'Opened ' + row.dataset.title" : "'Opened'"};
-        }; });</script></body></html>`);
+        }; }); } bindRows();</script></body></html>`);
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
@@ -84,6 +98,26 @@ describe('explicit positional replay through the built runner', () => {
         if (id === undefined) throw new Error('No inbox item');
         await context.actions.tap({ id });
         return { status: 'passed', summary: 'Opened an inbox item' };
+      },
+    };
+  }
+
+  /** A second action addresses the old screen after an unrelated control replaces its rows. */
+  function batchedExecutor(action: 'tap' | 'drag'): StepExecutor {
+    return {
+      name: 'batched-remount',
+      async runStep(context) {
+        const observation = await context.observe();
+        const prepare = /#(\S+) button "Prepare"/u.exec(observation.text)?.[1];
+        const card = /#(\S+) button "Card"/u.exec(observation.text)?.[1];
+        const row = observation.text.split('\n').findLast((line) => line.includes('testid="inbox-item"'));
+        const id = row === undefined ? undefined : /#(\S+)/u.exec(row)?.[1];
+        if (prepare === undefined || card === undefined || id === undefined) throw new Error('Fixture nodes missing');
+        await context.actions.tap({ id: prepare });
+        await context.observe();
+        if (action === 'tap') await context.actions.tap({ id });
+        else await context.actions.drag({ id: card }, { id });
+        return { status: 'passed', summary: 'Opened the current last item' };
       },
     };
   }
@@ -125,6 +159,59 @@ describe('explicit positional replay through the built runner', () => {
       project.cleanup();
     }
   }, 90_000);
+
+  it.each(['first', 'last'] as const)('retains %s intent when the row remounts before input', async (at) => {
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at }) });
+    try {
+      items = ['Alpha', 'Beta'];
+      remount = 'hover';
+      const outcome = await run(project, executor(at, { count: 0 }));
+      expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error).toBeUndefined();
+      expect(outcome.exitCode).toBe(0);
+      expect(selected).toBe(at === 'first' ? 'Gamma' : 'Epsilon');
+      const step = resultByTitle(outcome, TITLE).attempts.at(-1)!.steps.find((entry) => entry.api === 'agent.act')!;
+      expect(step.events.some((event) => event.kind === 'observation' && event.name === 'relocate')).toBe(true);
+      expect(step.metrics!.actionSteps).toBe(2);
+    } finally {
+      remount = undefined;
+      project.cleanup();
+    }
+  }, 30_000);
+
+  it.each(['tap', 'drag'] as const)('re-finds an old positional %s target after another action remounts the list', async (action) => {
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: 'last' }) });
+    const brain = batchedExecutor(action);
+    try {
+      items = ['Alpha', 'Beta'];
+      remount = 'prepare';
+      const outcome = await run(project, brain);
+      expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error).toBeUndefined();
+      expect(outcome.exitCode).toBe(0);
+      expect(selected).toBe('Epsilon');
+    } finally {
+      remount = undefined;
+      project.cleanup();
+    }
+  }, 30_000);
+
+  it.each(['hover', 'tap', 'drag'] as const)('refuses an incomplete remounted list during %s without selecting a row', async (mode) => {
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: mode === 'hover' ? 'first' : 'last' }) });
+    try {
+      items = ['Alpha', 'Beta'];
+      remount = mode === 'hover' ? 'hover' : 'prepare';
+      replacementItems = Array.from({ length: 60 }, (_, index) => `Message ${index}`);
+      const brain = mode === 'hover' ? executor('first', { count: 0 }) : batchedExecutor(mode);
+      const outcome = await run(project, brain, false, 1_024);
+      expect(outcome.exitCode).not.toBe(0);
+      expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error?.code).toBe('POLICY_DENIED');
+      expect(selected).toBeUndefined();
+      expect(readEntries(project)).toHaveLength(0);
+    } finally {
+      remount = undefined;
+      replacementItems = ['Gamma', 'Delta', 'Epsilon'];
+      project.cleanup();
+    }
+  }, 30_000);
 
   it('isolates ordinary, first, last and another test-id hint in one cache', async () => {
     const calls = { count: 0 };
@@ -194,7 +281,9 @@ describe('explicit positional replay through the built runner', () => {
       expect(cached.exitCode).not.toBe(0);
       expect(calls.count).toBe(1);
       expect(selected).toBeUndefined();
-      expect((await run(fresh, brain, false, 1_024)).exitCode).not.toBe(0);
+      const live = await run(fresh, brain, false, 1_024);
+      expect(live.exitCode).not.toBe(0);
+      expect(resultByTitle(live, TITLE).attempts.at(-1)!.error?.code).toBe('POLICY_DENIED');
       expect(selected).toBeUndefined();
       expect(readEntries(fresh)).toHaveLength(0);
     } finally {

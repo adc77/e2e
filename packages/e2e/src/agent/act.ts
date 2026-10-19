@@ -233,6 +233,7 @@ class ActDispatch {
       maxObservationBytes: agent.config.maxObservationBytes,
       maxInputTokens: agent.config.maxInputTokens,
       instructionBytes: tokenUpperBound(spec.instruction),
+      position: spec.position,
     });
     this.dispatcher = new ActionDispatcher(runtime, this.accounting, this.feed, queue, {
       instruction: spec.instruction,

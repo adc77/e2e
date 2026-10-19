@@ -97,9 +97,10 @@ edge, without the row's label or container text. First, last and ordinary
 calls have separate recordings. End-state checks remain unchanged.
 
 Order is the engine's semantic document order across all observed matches
-of that test id and role. An empty set hands replay off; an incomplete tree
-cannot establish an edge. Virtualized or paginated rows absent from the
-observation do not participate. Use distinct test ids for separate lists.
+of that test id and role. An empty set hands replay off, or fails with
+`REPLAY_STALE` under strict cache. An incomplete tree cannot establish an
+edge; a live positional action refuses it with `POLICY_DENIED`. Virtualized
+or paginated rows absent from the observation do not participate. Use distinct test ids for separate lists.
 
 `onAction` runs after each action the step completes, once the screen
 settles, and before the next action. That includes actions the
@@ -140,6 +141,7 @@ The runner's own stops, and the checks on the call itself:
 | `REPLAY_STALE` | Under a strict cache, the step's recording no longer replays. |
 | `INVALID_ARGUMENT` | A malformed instruction or `position`, oversized `params`, an unknown option, an `onAction` that is not a function, or a budget above the configured limit. An unknown `agent` name fails before the step opens. |
 | `UNSUPPORTED_CAPABILITY` | `schema` or `vision`, which `act` does not take. |
+| `POLICY_DENIED` | A live positional action cannot establish its edge from an incomplete observation. |
 
 ### agent.assert
 
