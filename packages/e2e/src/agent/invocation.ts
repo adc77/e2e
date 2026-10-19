@@ -93,6 +93,8 @@ export interface AgentContext {
    * the run's. An unknown name is `INVALID_ARGUMENT`.
    */
   readonly select: (name: string | undefined) => AgentSelection;
+  /** Reports a model the provider refused, met by a step's call; the run stops once over it. */
+  readonly reportUnservedModel: (error: AgentError) => void;
   readonly config: ResolvedConfig;
   /** The target this attempt runs on. */
   readonly target: StepExecutorContext['target'];
@@ -232,7 +234,7 @@ export class Invocation {
           redact: this.runtime.redact,
           redactCut: this.runtime.redactCut,
           maxBytes: this.observationByteBudget(),
-          pixelsAllowed: this.options.vision !== false && !this.runtime.exposure.withholdsPixels,
+          pixelsAllowed: this.options.vision !== false && !this.runtime.exposure.withholdsModelPixels,
           appOrigin: this.runtime.app.base?.origin,
         });
         return prepared;
@@ -257,7 +259,7 @@ export class Invocation {
       signal: this.runtime.engine.signal,
       api: this.options.api,
       fallback: this.options.vision !== false,
-      tainted: () => this.runtime.exposure.withholdsPixels,
+      tainted: () => this.runtime.exposure.withholdsModelPixels,
     });
   }
 
@@ -268,7 +270,7 @@ export class Invocation {
    */
   private pixelsRequested(): boolean {
     if (!this.pixelTier) return false;
-    if (this.runtime.exposure.withholdsPixels) {
+    if (this.runtime.exposure.withholdsModelPixels) {
       this.loseVision('PIXEL_TAINTED');
       return false;
     }
@@ -277,7 +279,7 @@ export class Invocation {
 
   /** Records whether requested pixels actually became model input. */
   private recordPixels(observation: AgentObservation): void {
-    const outcome = pixelsForModel(observation, this.runtime.exposure.withholdsPixels);
+    const outcome = pixelsForModel(observation, this.runtime.exposure.withholdsModelPixels);
     if ('withheld' in outcome) {
       this.loseVision(outcome.withheld);
       return;

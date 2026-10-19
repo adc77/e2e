@@ -23,6 +23,7 @@
 }
 
 :root {
+  --e2e-paper: rgb(255 255 255);
   --e2e-ink: rgb(23 23 23);
   --e2e-muted: rgb(115 115 115);
   --e2e-hairline: rgb(232 232 232);
@@ -32,6 +33,7 @@
 }
 
 .dark {
+  --e2e-paper: rgb(10 10 10);
   --e2e-ink: rgb(250 250 250);
   --e2e-muted: rgb(163 163 163);
   --e2e-hairline: rgb(78 78 78);
@@ -208,10 +210,76 @@ a[href*='utm_campaign=docs_sidebar_banner'] {
     #table-of-contents {
       anchor-name: --e2e-table-of-contents;
     }
+
+    /* Room for the card, its gap, and a margin; change it with the card. */
+    @media (height >= 40rem) {
+      #table-of-contents-layout {
+        max-height: calc(100% - 13rem);
+      }
+    }
   }
 
   html:not(:has(#table-of-contents)) a[href*='utm_campaign=docs_sidebar_banner'] {
     display: none;
+  }
+
+  /* A short window keeps the table of contents and drops the card. */
+  @media (height < 40rem) {
+    a[href*='utm_campaign=docs_sidebar_banner'] {
+      display: none;
+    }
+  }
+
+  /* Keeps a focused or active entry clear of the heading (2.5rem padding,
+     1.5rem line, 1rem fade) and of the bottom fade. */
+  #table-of-contents [data-component-part='scroll-area-viewport'] {
+    scroll-padding-block: 5rem 2rem;
+    mask-image: linear-gradient(
+      to bottom,
+      black calc(100% - min(var(--scroll-area-fade-size), var(--scroll-area-overflow-y-end, 0px))),
+      transparent
+    );
+  }
+
+  /* The heading stays put; its negative margin covers the viewport's top
+     padding, so entries scroll under it, not above it. */
+  #table-of-contents nav > h2 {
+    position: sticky;
+    top: -2.5rem;
+    z-index: 1;
+    margin-top: -2.5rem;
+    padding-top: 2.5rem;
+    background: var(--e2e-paper);
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 100% 0 auto;
+      height: 1rem;
+      background: linear-gradient(var(--e2e-paper), transparent);
+      opacity: 0;
+      transition: opacity 150ms;
+      pointer-events: none;
+    }
+  }
+
+  #table-of-contents [data-overflow-y-start] nav > h2::after {
+    opacity: 1;
+  }
+
+  /* The list's focus ring is drawn over it, where the heading and the fade
+     cannot hide it. */
+  #table-of-contents [data-component-part='scroll-area-viewport']:focus-visible {
+    outline: none;
+  }
+
+  #table-of-contents:has(> [data-component-part='scroll-area-viewport']:focus-visible)::after {
+    content: '';
+    position: absolute;
+    inset: calc(2.5rem - 6px) -6px 0;
+    z-index: 1;
+    border: 2px solid var(--e2e-ink);
+    pointer-events: none;
   }
 }
 
@@ -839,11 +907,12 @@ html.dark body .code-block-fade-overlay {
    ::after draws the wordmark (the two make its accessible name), and its
    socials wrapper is dissolved so the link can sit beside Mintlify's. The
    Mintlify credit itself stays as Mintlify renders it.
-   The images are in images/footer/. Mintlify inlines this file into each
-   page, so a url() resolves against the page, not this file, and production
-   serves the site under /docs while `mint dev` serves it at the root. Each
-   image is therefore two layers, one path per host: the one that misses
-   paints nothing (a failed image layer is transparent), the other draws. */
+   The images are in images/footer/, loaded from the production site.
+   Mintlify inlines this file into each page, so a url() path resolves
+   against the page, and production serves the site under /docs while
+   `mint dev` serves it at the root: no one relative path loads on both, and
+   a path per host 404s on every page (Firefox then paints no wordmark at
+   all). A changed image shows under `mint dev` once it is deployed. */
 #footer {
   flex-wrap: wrap;
   align-items: center;
@@ -921,12 +990,8 @@ html.dark body .code-block-fade-overlay {
     height: 0.8rem;
     margin-top: 0.2rem;
     background: currentColor;
-    -webkit-mask:
-      url('/images/footer/testerarmy-wordmark.svg') center / contain no-repeat,
-      url('/docs/images/footer/testerarmy-wordmark.svg') center / contain no-repeat;
-    mask:
-      url('/images/footer/testerarmy-wordmark.svg') center / contain no-repeat,
-      url('/docs/images/footer/testerarmy-wordmark.svg') center / contain no-repeat;
+    -webkit-mask: url('https://e2e.tester.army/docs/images/footer/testerarmy-wordmark.svg') center / contain no-repeat;
+    mask: url('https://e2e.tester.army/docs/images/footer/testerarmy-wordmark.svg') center / contain no-repeat;
 
     @media (forced-colors: active) {
       forced-color-adjust: none;
@@ -945,9 +1010,7 @@ html.dark body .code-block-fade-overlay {
     mask-image: none !important;
     /* The brand kit's color mark (tester.army/brand), cropped to the
        mascot. */
-    background:
-      url('/images/footer/testerarmy-mark.png') center / contain no-repeat,
-      url('/docs/images/footer/testerarmy-mark.png') center / contain no-repeat !important;
+    background: url('https://e2e.tester.army/docs/images/footer/testerarmy-mark.png') center / contain no-repeat !important;
     filter: grayscale(1);
     opacity: 0.6;
     transition: filter 150ms ease-out, opacity 150ms ease-out;

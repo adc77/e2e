@@ -23,7 +23,7 @@ import { join } from 'node:path';
 import { resolveVision } from '../config/agent.ts';
 import { ConfigurationError } from '../internal/errors.ts';
 import { withAbort, withTimeout } from '../internal/time.ts';
-import type { ActOptions, ActResult, AgentErrorCode, JsonValue, ModelInstance, Secret, VisionMode } from '../types.ts';
+import type { ActionHook, ActOptions, ActResult, AgentErrorCode, JsonValue, ModelInstance, Secret, VisionMode } from '../types.ts';
 import { AgentError, CATEGORY_BY_CODE, toAgentError } from './error.ts';
 import { redactParams, validateActOptions, validateInstruction, validateParams, validateVerdict } from './act-validation.ts';
 import { ActionDispatcher } from './action-dispatcher.ts';
@@ -32,10 +32,9 @@ import { RUNTIME_CODES, type ExecutorPixels, type StepExecutorContext, type Step
 import type { AgentContext, AgentSelection } from './invocation.ts';
 import { projectPriorSteps, serializeLedger } from './ledger.ts';
 import { tokenUpperBound } from './model/adapter.ts';
-import { instantiateLanguageModel } from './model/sdk.ts';
+import { instantiateLanguageModel, isUnservedModelError, unservedModelError } from './model/sdk.ts';
 import type { AgentObservation } from './observation.ts';
 import { ObservationFeed } from './observation-feed.ts';
-import { recordPolicyEvent } from './phases.ts';
 import type { ObservedScreen } from './replay.ts';
 import { appLocation } from '../cache/route.ts';
 import { OperationQueue } from './operation-queue.ts';
@@ -68,6 +67,8 @@ export interface DispatchSpec {
   readonly screenshot?: boolean;
   /** Assert only: the `vision` the call asked for; the executor must declare `vision: true` to receive it. */
   readonly vision?: VisionMode;
+  /** Act only: the test's hook for each completed action. */
+  readonly onAction?: ActionHook | undefined;
 }
 
 /** Runs one `agent.act()` call as a harness-dispatched executor step. */
@@ -92,6 +93,7 @@ export async function runActStep(
     maxSteps: options?.maxSteps,
     maxModelCalls: options?.maxModelCalls,
     agent: options?.agent,
+    onAction: options?.onAction,
   });
 }
 
@@ -162,7 +164,9 @@ export async function dispatchAgentStep(
       try {
         verdict = await dispatch.run();
       } catch (cause) {
-        throw dispatch.settleThrown(toAgentError(cause));
+        const error = unservedModelError(cause) ?? toAgentError(cause);
+        if (isUnservedModelError(error)) runtime.reportUnservedModel(error);
+        throw dispatch.settleThrown(error);
       }
       const evidence = await dispatch.captureEvidence();
       dispatch.settle(validateVerdict(verdict, agent.executor.name), evidence);
@@ -232,6 +236,7 @@ class ActDispatch {
       params: spec.params,
       secrets: spec.secrets,
       trace: () => this.stepCache,
+      onAction: spec.onAction,
     });
     // The dispatch always runs inside a recorded step (`dispatchAgentStep`
     // opens one); the index names the step to the executor and to the trace cache.
@@ -308,7 +313,7 @@ class ActDispatch {
       },
       observe: (options) => this.feed.observe(options),
       get pixelsTainted() {
-        return dispatch.runtime.exposure.withholdsPixels;
+        return dispatch.runtime.exposure.withholdsModelPixels;
       },
       attachTranscript: (text) => {
         // Debug detail only: transcripts are model prose and can be large.
@@ -370,8 +375,7 @@ class ActDispatch {
   /**
    * Keeps a redacted screenshot as an assert step's evidence once the
    * executor has judged, on a passing verdict too, as the built-in judgment
-   * does. `screenshot: false` opts out and a pixel-tainted viewport denies
-   * it. Best-effort: a failed capture never fails the step, and neither does
+   * does. `screenshot: false` opts out. Best-effort: a failed capture never fails the step, and neither does
    * one that never settles. The capture runs after `run()` cleared the step
    * timer, and an engine may ignore the cancellation its operation carries,
    * so the wait is bounded by that operation's own budget (`actionTimeout`
@@ -381,10 +385,6 @@ class ActDispatch {
    */
   async captureEvidence(): Promise<string | undefined> {
     if (this.spec.kind !== 'assert' || this.spec.screenshot === false) return undefined;
-    if (this.runtime.exposure.withholdsPixels) {
-      recordPolicyEvent(this.runtime.steps, 'assert.screenshot', 'denied', 'PIXEL_TAINTED');
-      return undefined;
-    }
     const { signal } = this.accounting;
     if (signal.aborted) return undefined;
     try {

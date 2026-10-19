@@ -126,7 +126,7 @@ label. `browser` (`Browser`): browser targets, import `test` from `@e2e-dev/web`
 - `clearState()`: clears cookies and storage, recreates the context, reopens
   the base URL.
 - `screenshot(label?)`: saves a redacted screenshot artifact and returns its
-  path. Denied after a secret fill (see Sign-in sessions).
+  path. It masks secure fields only (see Sign-in sessions).
 
 `clearState()` is `UNSUPPORTED_CAPABILITY` with `connect.reconnectEndpoint`
 or an attempt-scoped browser provider; on a device with no pinned `app`, both
@@ -144,7 +144,7 @@ assertion. Every query also exists on a locator, scoped to its subtree.
 | `getByPlaceholder(text, { exact?, visible? })` | Inputs by placeholder. |
 | `getByText(text, { exact?, visible? })` | Visible text. |
 | `getByDisplayValue(value, { exact?, visible? })` | Inputs by current value; on the web it cannot scope child queries or be a `filter({ has })` target. |
-| `getByTestId(id, { visible? })` | `data-testid` on the web (or `web({ testIdAttribute })`), accessibility identifier or resource id on a device (React Native `testID`, SwiftUI `.accessibilityIdentifier`, Compose `testTag` with `testTagsAsResourceId` on Android, Flutter `Semantics(identifier:)`); a string matches the whole id, a RegExp tests it. Last resort. |
+| `getByTestId(id, { visible? })` | `data-testid` on the web (or `web({ testIdAttribute })`), accessibility identifier or resource id on a device (React Native `testID`, SwiftUI `.accessibilityIdentifier`, Compose `testTag` with `testTagsAsResourceId` on Android, Flutter `Semantics(identifier:)`, .NET MAUI `AutomationId`); a string matches the whole id, a RegExp tests it; on Android the `<package>:id/` prefix may be left off. Last resort. |
 
 Roles: `button`, `link`, `textbox`, `searchbox`, `combobox`, `listbox`,
 `option`, `checkbox`, `radio`, `radiogroup`, `switch`, `slider`, `spinbutton`,
@@ -340,11 +340,11 @@ test('the dashboard opens directly', { session: 'admin' }, async ({ app, screen 
   match `[A-Za-z0-9_.-]{1,128}`.
 - A session holds cookies, local storage, and IndexedDB for one run,
   encrypted and deleted at cleanup; server state is not part of it.
-- Once a secret is filled, model pixels and assertion screenshots are
-  withheld for the rest of that session (later serial members included) and
-  `app.screenshot()` is `POLICY_DENIED`. A restored session keeps its setup's
-  taint; a setup that signs in without a fill (`browser.setCookies`, say) leaves
-  screenshots available.
+- Once a secret is filled, model pixels are withheld for the rest of that
+  session (later serial members included). Artifact screenshots
+  (`app.screenshot()`, assertion, failure) stay on and mask secure fields
+  only. A restored session keeps its setup's taint; a setup that signs in
+  without a fill (`browser.setCookies`, say) leaves model pixels available.
 - Credentials live in the config, values in the environment:
 
 ```ts
@@ -411,7 +411,8 @@ the app opens itself (`target="_blank"`, `window.open`) is not followed:
 - `waitForResponse(pattern, { timeout? })`: resolves once the headers
   arrive, with `{ url, status, headers, json(), text() }`; `text()` and
   `json()` wait for the body (up to the action timeout) and reject with
-  `ACTION_FAILED` when it could not be read.
+  `ACTION_FAILED` when it could not be read. Start the wait before the
+  request, including the first `browser.goto` or `app.open`.
 - `cookies()`, `setCookies([...])`: a target is an http(s) URL or a domain.
 - `setViewport({ width, height })`: resize.
 - `emulateMedia({ colorScheme?, reducedMotion? })`: what the page's `@media`
@@ -419,7 +420,8 @@ the app opens itself (`target="_blank"`, `window.open`) is not followed:
   `app.open` to load the page with it; a feature left out keeps its value.
 - `onDialog('accept' | 'dismiss' | handler)`: awaited; resolves to an async
   unsubscribe. Register it before the tap that opens the dialog. A handler
-  gets `{ message, accept(text?), dismiss() }`, `accept` taking the prompt
+  gets `{ type, message, accept(text?), dismiss() }`, where `type` is
+  `alert`, `confirm`, `prompt`, or `beforeunload`, `accept` taking the prompt
   text; no handler, or one that neither accepts nor dismisses, fails the
   next step with `INVALID_STATE`. A throwing handler's unanswered dialog is
   dismissed too, and its error fails the next step.

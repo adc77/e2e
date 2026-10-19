@@ -151,7 +151,7 @@ export interface AgentOption {
 export interface AssertOptions extends VisionOption, AgentOption {
   /** Deadline in milliseconds; defaults to the agent's `judgmentTimeout`, 30000. */
   timeout?: number;
-  /** Attach a redacted screenshot to the step; on by default, denied after a secret fill. */
+  /** Attach a redacted screenshot to the step; on by default. */
   screenshot?: boolean;
 }
 
@@ -192,6 +192,27 @@ export interface ActOptions extends AgentOption {
   maxSteps?: number;
   /** Model-call budget; defaults to `agents.<name>.maxModelCalls` and can only lower it. */
   maxModelCalls?: number;
+  /**
+   * Runs after each action the step completes, once the screen settles, and
+   * before the next one. Awaited, and its time counts toward `timeout`.
+   * Observe only: drive nothing from it. A throw fails the step.
+   */
+  onAction?: ActionHook;
+}
+
+/** The `onAction` hook of an `act` call. */
+export type ActionHook = (event: ActionEvent) => void | Promise<void>;
+
+/** One completed action of an `act` step, as `onAction` receives it. */
+export interface ActionEvent {
+  /** 1-based position in the step's action budget; a failed attempt uses a number too. */
+  readonly index: number;
+  /** The committed action, e.g. `tap` or `navigate`; a mutating project tool reads `tool:<name>`. */
+  readonly action: string;
+  /** What the action did, secrets redacted. */
+  readonly summary: string;
+  /** `model` when the executor chose the action, `replay` when the cache replayed it. */
+  readonly source: 'model' | 'replay';
 }
 
 /** What one passing `act` step did, as the report records it. */
@@ -437,7 +458,7 @@ export interface Screen {
   getByText(text: TextMatch, options?: TextMatchOptions): Locator;
   /** Creates a lazy displayed-value query. */
   getByDisplayValue(value: TextMatch, options?: TextMatchOptions): Locator;
-  /** Creates a lazy test-id query: a string matches the whole id, case-sensitive; a RegExp tests it. */
+  /** Creates a lazy test-id query: a string matches the whole id, case-sensitive; a RegExp tests it. An engine may also match an id without its platform's namespacing. */
   getByTestId(id: TextMatch, options?: { visible?: boolean }): Locator;
   /** Taps a viewport point, with no node behind it. */
   tapAt(point: Point, options?: ActionOptions): Promise<void>;
