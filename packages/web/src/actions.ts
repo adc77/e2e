@@ -17,7 +17,7 @@ import {
   translatePwError,
   type ActionTarget,
 } from './support.ts';
-import type { ConnectionBudget } from './operation-budget.ts';
+import { connectionAbort, type ConnectionBudget } from './operation-budget.ts';
 
 /** How long a long press holds the button when the action names no duration. */
 const DEFAULT_LONG_PRESS_MS = 500;
@@ -222,11 +222,15 @@ export async function dispatchPointerAction(
       // A swipe along a path is a pointer drag on a document platform.
       await performPointDrag(mouse, point, action.target, action.durationMs, signal);
       return;
-    case 'swipe':
+    case 'swipe': {
       // The pointer moves to the point first so the scrollable under it receives the wheel.
       await mouse.move(point.x, point.y);
-      await performViewportSwipe(page, action.direction, action.momentum ?? 'none', Math.max(1, deadline.remaining()));
+      if (signal.aborted) throw connectionAbort(signal, 'swipe');
+      const remaining = deadline.remaining();
+      if (remaining <= 0) throw new EngineError('OPERATION_TIMEOUT', 'swipe timed out before wheel dispatch', { retryable: false });
+      await performViewportSwipe(page, action.direction, action.momentum ?? 'none', remaining);
       return;
+    }
   }
 }
 

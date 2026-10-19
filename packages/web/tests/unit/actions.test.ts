@@ -355,4 +355,28 @@ describe('dispatchPointerAction', () => {
     expect(done).toBe(true);
     expect(rendered.dispose).toHaveBeenCalledOnce();
   });
+
+  it('does not send the wheel when cancelled during the pointer move', async () => {
+    const { page } = stubPage();
+    const controller = new AbortController();
+    vi.spyOn(page.mouse, 'move').mockImplementation(async () => { controller.abort(); });
+    const wheel = vi.spyOn(page.mouse, 'wheel');
+    await expect(dispatchPointerAction(page, { x: 10, y: 20 }, { kind: 'swipe', direction: 'down' }, { ...OPERATION, signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(wheel).not.toHaveBeenCalled();
+  });
+
+  it('does not send the wheel when the pointer move consumes the budget', async () => {
+    vi.useFakeTimers({ now: 0 });
+    try {
+      const { page } = stubPage();
+      vi.spyOn(page.mouse, 'move').mockImplementation(async () => { vi.advanceTimersByTime(OPERATION.timeoutMs); });
+      const wheel = vi.spyOn(page.mouse, 'wheel');
+      await expect(dispatchPointerAction(page, { x: 10, y: 20 }, { kind: 'swipe', direction: 'down' }, OPERATION))
+        .rejects.toMatchObject({ code: 'OPERATION_TIMEOUT' });
+      expect(wheel).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
