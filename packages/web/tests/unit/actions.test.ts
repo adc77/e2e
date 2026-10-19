@@ -155,7 +155,7 @@ describe('classifyActionError', () => {
 /** A locator stub recording every action call; the swipe path also needs a box, a page, and whether the node is under the pointer's aim. */
 function stubLocator(box = { x: 10, y: 20, width: 200, height: 100 }, aim: 'pointer' | 'centre' | 'blocked' = 'blocked') {
   const wheel = vi.fn(async (_x: number, _y: number) => undefined);
-  const frame = vi.fn(async () => undefined);
+  const frame = vi.fn(async () => ({ dispose: async () => undefined }));
   const move = vi.fn(async (_x: number, _y: number) => undefined);
   const locator = {
     click: vi.fn(async () => undefined),
@@ -170,7 +170,7 @@ function stubLocator(box = { x: 10, y: 20, width: 200, height: 100 }, aim: 'poin
     dragTo: vi.fn(async () => undefined),
     boundingBox: vi.fn(async () => box),
     evaluate: vi.fn(async () => (aim === 'blocked' ? { aim } : { aim, box })),
-    page: () => ({ viewportSize: () => ({ width: 1280, height: 720 }), mouse: { wheel, move }, evaluate: frame }),
+    page: () => ({ viewportSize: () => ({ width: 1280, height: 720 }), mouse: { wheel, move }, evaluate: async () => 0, waitForFunction: frame }),
   };
   const target: ActionTarget = { kind: 'locator', locator: locator as unknown as PwLocator };
   return { locator, target, wheel, move, frame };
@@ -264,7 +264,12 @@ describe('dispatchPointerAction', () => {
       dblclick: async (x: number, y: number) => { calls.push(`dblclick ${x},${y}`); },
       wheel: async (dx: number, dy: number) => { calls.push(`wheel ${dx},${dy}`); },
     };
-    const page = { mouse, evaluate: async () => { calls.push('frame'); }, viewportSize: () => ({ width: 800, height: 600 }) } as unknown as Page;
+    const page = {
+      mouse,
+      evaluate: async () => 0,
+      waitForFunction: async () => { calls.push('frame'); return { dispose: async () => undefined }; },
+      viewportSize: () => ({ width: 800, height: 600 }),
+    } as unknown as Page;
     return { page, calls };
   }
 
@@ -339,7 +344,8 @@ describe('dispatchPointerAction', () => {
   it('resolves a swipe only once the frame after the wheel rendered', async () => {
     const { page } = stubPage();
     let render!: () => void;
-    (page as unknown as { evaluate: () => Promise<void> }).evaluate = () => new Promise((resolve) => (render = resolve));
+    const rendered = { dispose: vi.fn(async () => undefined) };
+    Object.assign(page, { waitForFunction: () => new Promise(resolve => { render = () => resolve(rendered); }) });
     let done = false;
     const swipe = dispatchPointerAction(page, { x: 10, y: 20 }, { kind: 'swipe', direction: 'down' }).then(() => (done = true));
     await vi.waitFor(() => expect(render).toBeDefined());
@@ -347,5 +353,6 @@ describe('dispatchPointerAction', () => {
     render();
     await swipe;
     expect(done).toBe(true);
+    expect(rendered.dispose).toHaveBeenCalledOnce();
   });
 });

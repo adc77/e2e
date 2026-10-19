@@ -485,13 +485,10 @@ export async function performElementSwipe(
  */
 async function wheelRendered(page: Page, deltaX: number, deltaY: number): Promise<void> {
   await page.mouse.wheel(deltaX, deltaY);
-  await page.evaluate(nextRenderedFrame);
-}
-
-/** Page-side: resolves after the next rendered frame, or at once in a hidden document. */
-function nextRenderedFrame(): Promise<void> {
-  if (document.visibilityState === 'hidden') return Promise.resolve();
-  return new Promise((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+  // The document timeline advances even when the app's clock and animation callbacks are paused.
+  const frame = await page.evaluate(() => document.timeline.currentTime);
+  const rendered = await page.waitForFunction(previous => document.visibilityState === 'hidden' || document.timeline.currentTime !== previous, frame);
+  await rendered.dispose();
 }
 
 /** Where a wheel reaches a node, and the box it read when it was not blocked. */
