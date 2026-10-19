@@ -871,7 +871,7 @@ export class PlaywrightSurface {
         const page = this.requirePage();
         if (action.kind === 'swipe' && ref.id === ROOT_NODE_ID) {
           this.requireSession().requireObservation();
-          return performViewportSwipe(page, action.direction, action.momentum ?? 'none');
+          return performViewportSwipe(page, action.direction, action.momentum ?? 'none', currentOperation.timeoutMs);
         }
         return dispatchLocatorAction(this.requireSession().refs.lookup(ref), action, currentOperation, (other) =>
           this.requireSession().refs.lookup(other),
@@ -885,7 +885,7 @@ export class PlaywrightSurface {
   performAt(point: ViewportPoint, action: PointerAction, operation: OperationContext): Promise<void> {
     return this.acted(operation, this.guard(operation, `${action.kind} at point`, (currentOperation) => {
       this.requireSession().requireObservation();
-      return dispatchPointerAction(this.requirePage(), point, action, currentOperation.signal);
+      return dispatchPointerAction(this.requirePage(), point, action, currentOperation);
     }, classifyInputError));
   }
 

@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Page } from 'playwright-core';
 import type { EngineHandle, OperationContext } from 'e2e/engine';
 import { web, surfaceOf, type PlaywrightLiveSurface, type WebOptions } from '../../src/index.ts';
@@ -177,6 +177,33 @@ describe('browser clock', () => {
       expect(await live.page().evaluate(() => window.clockScroll)).toBeGreaterThan(0);
       expect(await live.page().evaluate(() => Date.now())).toBe(0);
       expect((await reading(live.page())).fired).toBe(false);
+    });
+  });
+
+  it.each(['point', 'root', 'node'] as const)('ends %s swipe polling within its budget without retrying dispatched input', async kind => {
+    await attempt({ clock: { time: 0, mode: 'paused' } }, async (engine, live) => {
+      await engine.session!.open!(url, operation());
+      await live.page().evaluate(() => {
+        const pane = document.createElement('div');
+        pane.dataset.testid = 'scroll';
+        pane.style.cssText = 'height:400px;overflow:auto';
+        pane.innerHTML = '<div style="height:8000px">Scroll pane</div>';
+        document.body.prepend(pane);
+      });
+      const snapshot = await engine.observe!(operation());
+      const nodes = await engine.locate!({ kind: 'query', query: { kind: 'testId', value: { kind: 'string', value: 'scroll', exact: true } } }, operation());
+      await live.page().evaluate(() => { Object.defineProperty(document.timeline, 'currentTime', { value: 0 }); });
+      const polling = vi.spyOn(live.page(), 'waitForFunction');
+      const budget = { ...operation(), timeoutMs: 200 };
+      const swipe = kind === 'point'
+        ? engine.performAt!({ x: 100, y: 100 }, { kind: 'swipe', direction: 'down' }, budget)
+        : engine.perform!(kind === 'root' ? snapshot.root.ref : nodes[0]!.ref, { kind: 'swipe', direction: 'down' }, budget);
+      await expect(swipe).rejects.toMatchObject({ code: 'ACTION_MAY_HAVE_COMMITTED', retryable: false });
+      expect(polling).toHaveBeenCalledOnce();
+      let failure: unknown;
+      void polling.mock.results[0]?.value.catch((error: unknown) => { failure = error; });
+      await Promise.resolve();
+      expect(failure).toMatchObject({ name: 'TimeoutError' });
     });
   });
 });

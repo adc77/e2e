@@ -193,8 +193,10 @@ export async function dispatchPointerAction(
   page: Page,
   at: ViewportPoint,
   action: PointerAction,
-  signal?: AbortSignal,
+  operation: ConnectionBudget,
 ): Promise<void> {
+  const deadline = new Deadline(operation.timeoutMs);
+  const { signal } = operation;
   const { mouse } = page;
   const point = nearestPixel(at);
   switch (action.kind) {
@@ -223,7 +225,7 @@ export async function dispatchPointerAction(
     case 'swipe':
       // The pointer moves to the point first so the scrollable under it receives the wheel.
       await mouse.move(point.x, point.y);
-      await performViewportSwipe(page, action.direction, action.momentum ?? 'none');
+      await performViewportSwipe(page, action.direction, action.momentum ?? 'none', Math.max(1, deadline.remaining()));
       return;
   }
 }
