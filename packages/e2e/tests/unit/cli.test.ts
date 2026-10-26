@@ -16,9 +16,13 @@ const upgradeMock = vi.hoisted(() => vi.fn());
 
 // The suite runs from the repository; these tests cover an installed CLI, where telemetry is on.
 vi.mock('../../src/telemetry/checkout.ts', () => ({ runsFromCheckout: () => false }));
-vi.mock('../../src/runner.ts', () => ({ list: listMock }));
-vi.mock('../../src/run/runner.ts', () => ({ run: runMock }));
+vi.mock('../../src/run/runner.ts', () => ({ run: runMock, listSelection: listMock }));
 vi.mock('../../src/cli/watch.ts', () => ({ watchSession: watchMock }));
+// `e2e list --reporter json` writes its document past the claimed output; here it lands on the stdout spy.
+vi.mock('../../src/run/process-output.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/run/process-output.ts')>()),
+  writeTerminal: (stream: 'stdout' | 'stderr', text: string) => process[stream].write(text),
+}));
 vi.mock('../../src/cli/init.ts', () => ({
   init: initMock,
 }));
@@ -40,6 +44,7 @@ function initOutcome(exitCode: number, overrides: Record<string, unknown> = {}) 
     exitCode,
     result: exitCode === 0 ? 'scaffolded' : 'invalid-project',
     yes: false,
+    example: null,
     existingConfig: false,
     engine: null,
     gateway: null,
@@ -103,6 +108,7 @@ describe('e2e run argument parsing', () => {
     expect(options.configPath).toBeUndefined();
     expect(options.reporters).toBeUndefined();
     expect(options.agent).toBeUndefined();
+    expect(options.changedSince).toBeUndefined();
     expect(process.exitCode).toBe(0);
   });
 
@@ -234,6 +240,25 @@ describe('e2e run argument parsing', () => {
     expect(runMock).not.toHaveBeenCalled();
   });
 
+  it('parses --action-timeout and --assertion-timeout as milliseconds a timer can wait and rejects anything else with exit code 2', async () => {
+    await invoke('run', '--action-timeout', '5000', '--assertion-timeout', '2147483647');
+    expect(lastRunOptions()).toMatchObject({ actionTimeout: 5_000, assertionTimeout: 2_147_483_647 });
+    runMock.mockClear();
+    await invoke('run');
+    expect(lastRunOptions()).toMatchObject({ actionTimeout: undefined, assertionTimeout: undefined });
+    runMock.mockClear();
+    for (const flag of ['--action-timeout', '--assertion-timeout']) {
+      for (const value of ['0', '-1', '2.5', '5s', '2147483648']) {
+        stderrSpy.mockClear();
+        process.exitCode = undefined;
+        await invoke('run', flag, value);
+        expect(process.exitCode, `${flag} ${value}`).toBe(2);
+        expect(written(stderrSpy)).toContain(`option '${flag} <ms>' argument '${value}' is invalid. must be an integer from 1 through 2147483647`);
+      }
+    }
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
   it('parses --repeat-each as a positive integer', async () => {
     await invoke('run', '--repeat-each', '3');
     expect(lastRunOptions().repeatEach).toBe(3);
@@ -249,6 +274,15 @@ describe('e2e run argument parsing', () => {
     const options = lastRunOptions();
     expect(options.shard).toEqual({ index: 2, total: 3 });
     expect(options.lastFailed).toBe(true);
+  });
+
+  it('maps --changed-since to changedSince, which needs a ref', async () => {
+    await invoke('run', 'tests/a.e2e.ts', '--changed-since', 'origin/main');
+    expect(lastRunOptions()).toMatchObject({ files: ['tests/a.e2e.ts'], changedSince: 'origin/main' });
+    runMock.mockClear();
+    await invoke('run', '--changed-since');
+    expect(process.exitCode).toBe(2);
+    expect(runMock).not.toHaveBeenCalled();
   });
 
   it('rejects a --shard that is not index/total within range with exit code 2 and never runs', async () => {
@@ -267,11 +301,11 @@ describe('e2e run argument parsing', () => {
     delete process.env.CI;
     try {
       watchMock.mockResolvedValue(1);
-      await invoke('run', '-w', 'tests/a.e2e.ts', '--tag', 'smoke');
+      await invoke('run', '-w', 'tests/a.e2e.ts', '--tag', 'smoke', '--action-timeout', '3000');
       expect(runMock).not.toHaveBeenCalled();
       expect(watchMock).toHaveBeenCalledTimes(1);
       const options = watchMock.mock.calls[0]?.[0] as { base: RunOptions; stdin: unknown; clear: boolean };
-      expect(options.base).toMatchObject({ files: ['tests/a.e2e.ts'], tags: ['smoke'] });
+      expect(options.base).toMatchObject({ files: ['tests/a.e2e.ts'], tags: ['smoke'], actionTimeout: 3_000 });
       expect(options.stdin).toBe(process.stdin.isTTY === true ? process.stdin : undefined);
       expect(options.clear).toBe(process.stdout.isTTY === true);
       expect(process.exitCode).toBe(1);
@@ -321,6 +355,19 @@ describe('e2e run argument parsing', () => {
     expect(runMock).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(2);
     expect(written(stderrSpy)).toContain('unknown reporter "teamcity"');
+  });
+
+  it('rejects an empty --reporter on run and explore with exit code 2 instead of running with no reporters', async () => {
+    for (const command of ['run', 'explore']) {
+      for (const value of ['', ' , ']) {
+        process.exitCode = undefined;
+        stderrSpy.mockClear();
+        await invoke(command, '--reporter', value);
+        expect(process.exitCode).toBe(2);
+        expect(written(stderrSpy)).toContain(`option '--reporter <ids>' argument '${value}' is invalid. must name at least one reporter`);
+      }
+    }
+    expect(runMock).not.toHaveBeenCalled();
   });
 
   it('exits 2 on an unknown option or command without running, pointing at --help', async () => {
@@ -502,6 +549,8 @@ describe('e2e list', () => {
       'auth',
       '--tag-mode',
       'all',
+      '--changed-since',
+      'origin/main',
       '--pass-with-no-tests',
     );
     expect(lastListOptions()).toEqual({
@@ -510,6 +559,7 @@ describe('e2e list', () => {
       targets: ['web', 'webkit'],
       tags: ['smoke', 'auth'],
       tagMode: 'all',
+      changedSince: 'origin/main',
       passWithNoTests: true,
     });
     expect(written(stdoutSpy)).toBe('');
@@ -531,6 +581,27 @@ describe('e2e list', () => {
     expect(listMock).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(2);
     expect(written(stderrSpy)).toContain("option '--tag <tags>' argument '' is invalid. must name at least one tag");
+  });
+
+  it('prints a pair a test filter left out with the filter and its reason, as json { pairs } and as a line, and the filter lines on stderr, bounded', async () => {
+    const left = listed({ file: 'tests/a.e2e.ts', title: 'refunds', titlePath: ['refunds'], tags: [], target: 'web', disposition: 'filtered', reason: 'the diff misses billing', filter: 'areas' });
+    listMock.mockImplementation(async (_options: ListOptions, notice: (message: string) => void) => {
+      notice('areas: reading the diff\u001b[2J');
+      notice('areas kept 1 of 2 tests, left out 1 (src/auth changed)');
+      return { pairs: [pairs[0]!, left, pairs[3]!] };
+    });
+    await invoke('list', '--reporter', 'json');
+    expect(process.exitCode).toBe(0);
+    const json = JSON.parse(written(stdoutSpy)) as { pairs: ListedPair[] };
+    // A pair a selection flag removed stays out, as it always has; the one a filter left out is listed.
+    expect(json.pairs).toEqual(JSON.parse(JSON.stringify([pairs[0], left])));
+    const raw = stderrSpy.mock.calls.map((call: readonly unknown[]) => String(call[0])).join('');
+    expect(raw).not.toContain('\u001b');
+    expect(written(stderrSpy)).toBe(['areas: reading the diff', 'areas kept 1 of 2 tests, left out 1 (src/auth changed)', ''].join('\n'));
+
+    stdoutSpy.mockClear();
+    await invoke('list');
+    expect(written(stdoutSpy)).toBe('tests/a.e2e.ts › signs in [web] #smoke #auth\ntests/a.e2e.ts › refunds [web] (left out by areas: the diff misses billing)\n');
   });
 
   it('prints a collection failure as code and message with its exit code', async () => {
@@ -667,6 +738,7 @@ describe('e2e --version and --help', () => {
       '--exclude-tag',
       '--grep',
       '--grep-invert',
+      '--changed-since',
       '--last-failed',
       '--shard',
       '--pass-with-no-tests',
@@ -674,6 +746,8 @@ describe('e2e --version and --help', () => {
       '--agent',
       '--workers',
       '--retries',
+      '--action-timeout',
+      '--assertion-timeout',
       '--max-failures',
       '--max-duration',
       '--repeat-each',
