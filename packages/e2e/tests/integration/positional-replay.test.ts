@@ -66,6 +66,7 @@ describe('explicit positional replay through the built runner', () => {
         <div draggable="true" role="button" aria-label="Card" data-testid="card">Card</div>
         <ul>${rows(items)}</ul>
         <p role="status">Waiting</p><script>
+        if (${JSON.stringify(trackPoints)}) { window.pointSelected = null; window.pointHovered = null; }
         let remounted = false;
         function remountRows() {
           if (remounted) return;
@@ -358,7 +359,7 @@ describe('explicit positional replay through the built runner', () => {
       const outcome = await run(project, brain, false, truncated ? 1_024 : undefined);
       expect(outcome.exitCode).not.toBe(0);
       expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error?.code).toBe(truncated ? 'POLICY_DENIED' : 'ACTION_FAILED');
-      expect(JSON.parse(readFileSync(path.join(project.dir, 'point-input.json'), 'utf8'))).toEqual({});
+      expect(JSON.parse(readFileSync(path.join(project.dir, 'point-input.json'), 'utf8'))).toEqual({ selected: null, hovered: null });
       expect(readEntries(project)).toHaveLength(0);
     } finally {
       trackPoints = false;
