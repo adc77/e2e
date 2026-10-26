@@ -1,7 +1,9 @@
 /** Attempt-scoped fixture graph. */
 
+import path from 'node:path';
 import { BUILT_IN_AGENT } from '../agent/agent-brand.ts';
 import { createAgentFixture } from '../agent/index.ts';
+import { prepareObservation } from '../agent/observation.ts';
 import type { AgentContext, AgentSelection } from '../agent/invocation.ts';
 import type { ExecutorAttempt, StepExecutor } from '../agent/executor.ts';
 import type { AgentCacheContext } from '../cache/context.ts';
@@ -119,6 +121,13 @@ export function createFixtures(environment: AttemptEnvironment): AttemptFixtures
     steps: environment.steps,
     secrets,
     projectRoot: environment.config.projectRoot,
+    renderTree: (observation) =>
+      prepareObservation(observation, {
+        redact: ledger.redact,
+        redactCut: ledger.redactCut,
+        maxBytes: environment.config.limits.maxObservationBytes,
+        appOrigin: environment.target.app.base?.origin,
+      }).text,
     ...(environment.test === undefined
       ? {}
       : {
@@ -501,7 +510,7 @@ function createApp(environment: AttemptEnvironment, engine: LocatorEngine): App 
       return steps.run('app', 'app.screenshot', label ?? '', async () => {
         const relative = await engine.session.artifacts.screenshot(label, engine.operation());
         environment.steps.attachArtifact(environment.artifacts.register('screenshot', relative));
-        return relative;
+        return path.join(environment.artifacts.dir, relative);
       });
     },
   };
