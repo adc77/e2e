@@ -397,7 +397,7 @@ describe('dispatchPointerAction', () => {
         const wheel = kind === 'root' ? vi.spyOn(page.mouse, 'wheel') : node.wheel;
         const swipe = kind === 'root'
           ? performViewportSwipe(page, 'down', 'none', operation)
-          : dispatchLocatorAction(node.target, { kind: 'swipe', direction: 'down' }, operation, lookup);
+          : dispatchLocatorAction(node.target, { kind: 'swipe', direction: 'down' }, operation, () => node.target);
         await expect(swipe).rejects.toMatchObject({ code: stop === 'cancelled' ? 'CANCELLED' : 'OPERATION_TIMEOUT' });
         expect(wheel).not.toHaveBeenCalled();
       } finally {
