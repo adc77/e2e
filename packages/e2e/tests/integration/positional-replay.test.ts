@@ -31,11 +31,18 @@ describe('explicit positional replay through the built runner', () => {
   let items: string[];
   let selected: string | undefined;
   let showTitle = false;
+  let trackPoints = false;
+  let hovered: string | undefined;
   let remount: 'hover' | 'prepare' | undefined;
   let replacementItems = ['Gamma', 'Delta', 'Epsilon'];
 
   beforeAll(async () => {
     server = createServer((request, response) => {
+      if (request.url?.startsWith('/hovered?') === true) {
+        hovered = new URL(request.url, 'http://fixture.test').searchParams.get('title')!;
+        response.end('ok');
+        return;
+      }
       if (request.url?.startsWith('/selected?') === true) {
         selected = new URL(request.url, 'http://fixture.test').searchParams.get('title')!;
         response.end('ok');
@@ -62,6 +69,7 @@ describe('explicit positional replay through the built runner', () => {
         document.querySelector('[data-testid="card"]').ondragstart = (event) => event.dataTransfer.setData('text/plain', 'card');
         function bindRows() { document.querySelectorAll('[data-testid="inbox-item"]').forEach((row) => {
           if (${JSON.stringify(remount)} === 'hover') row.onpointerenter = remountRows;
+          else if (${JSON.stringify(trackPoints)}) row.onpointerenter = () => fetch('/hovered?title=' + encodeURIComponent(row.dataset.title));
           row.ondragover = (event) => event.preventDefault();
           row.onclick = row.ondrop = async (event) => {
           event.preventDefault();
@@ -311,6 +319,42 @@ describe('explicit positional replay through the built runner', () => {
       fresh.cleanup();
     }
   }, 45_000);
+
+  it.each([['tapAt', false], ['hoverAt', false], ['tapAt', true], ['hoverAt', true]] as const)('validates the edge before %s sends point input (truncated=%s)', async (verb, truncated) => {
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: 'first' }) });
+    const brain: StepExecutor = {
+      name: 'wrong-point',
+      async runStep(context) {
+        const observation = await context.observe({ tree: true });
+        const row = observation.text.split('\n').findLast(line => line.includes('testid="inbox-item"'));
+        const id = row === undefined ? undefined : /#(\S+)/u.exec(row)?.[1];
+        const pending = observation.tree === undefined ? [] : [observation.tree];
+        while (pending.length > 0) {
+          const node = pending.pop()!;
+          if (node.id === id && node.rect !== undefined) {
+            await context.actions[verb]({ x: node.rect.x + node.rect.width * 0.75, y: node.rect.y + node.rect.height / 2 });
+            return { status: 'passed', summary: 'Acted on the row' };
+          }
+          pending.push(...node.children ?? []);
+        }
+        throw new Error('Point fixture row missing');
+      },
+    };
+    try {
+      items = truncated ? Array.from({ length: 60 }, (_, index) => `Message ${index}`) : ['Alpha', 'Beta'];
+      trackPoints = true;
+      hovered = undefined;
+      const outcome = await run(project, brain, false, truncated ? 1_024 : undefined);
+      expect(outcome.exitCode).not.toBe(0);
+      expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error?.code).toBe(truncated ? 'POLICY_DENIED' : 'ACTION_FAILED');
+      expect(selected).toBeUndefined();
+      expect(hovered).toBeUndefined();
+      expect(readEntries(project)).toHaveLength(0);
+    } finally {
+      trackPoints = false;
+      project.cleanup();
+    }
+  }, 30_000);
 
   it('validates the drag destination before sending input', async () => {
     const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: 'first' }) });

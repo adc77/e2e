@@ -947,7 +947,6 @@ function readStates(document: unknown): readonly TraceAnchorState[] | undefined 
   return states.every((state, index) => index === 0 || states[index - 1]! < state) ? states : undefined;
 }
 
-
 function readProvenance(document: unknown): TraceProvenance | undefined {
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
     return undefined;

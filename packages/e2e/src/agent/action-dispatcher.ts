@@ -260,13 +260,14 @@ export class ActionDispatcher {
       // the tree's root is the page itself and follows no layout shift.
       const under = hit.under === undefined || (observation.kind === 'semantic' && hit.under.ref.id === observation.tree.ref.id) ? undefined : hit.under;
       await this.runActionNow(verb, async () => {
+        const placement = under === undefined || observation.kind !== 'semantic' ? {} : { under, ...this.placementOf({ node: under, observation }) };
         await this.session.performAt(clamped, { kind: nodeVerb }, this.accounting.actionOperation());
         return {
           name: verb,
           point: clamped,
           viewport: { width: observation.viewport.width, height: observation.viewport.height },
           // Its container and place among twins tell this row's node from the next row's on replay.
-          ...(under === undefined || observation.kind !== 'semantic' ? {} : { under, ...this.placementOf({ node: under, observation }) }),
+          ...placement,
         };
       });
       return { point: clamped, ...(hit.control === undefined ? {} : { target: { id: hit.control.ref.id } }), summary };
