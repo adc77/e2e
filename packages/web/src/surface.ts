@@ -287,7 +287,7 @@ export class PlaywrightSurface {
   private readonly userAgent: string | undefined;
   private readonly locale: string | undefined;
   private readonly timezoneId: string | undefined;
-  private readonly clock: WebOptions['clock'];
+  private readonly clock: WebClock | undefined;
   /** The configured media features, which every attempt starts from. */
   private readonly media: WebMedia;
   private readonly configuredInitScripts: ConfiguredInitScripts;
@@ -871,7 +871,7 @@ export class PlaywrightSurface {
         const page = this.requirePage();
         if (action.kind === 'swipe' && ref.id === ROOT_NODE_ID) {
           this.requireSession().requireObservation();
-          return performViewportSwipe(page, action.direction, action.momentum ?? 'none', currentOperation.timeoutMs);
+          return performViewportSwipe(page, action.direction, action.momentum ?? 'none', currentOperation);
         }
         return dispatchLocatorAction(this.requireSession().refs.lookup(ref), action, currentOperation, (other) =>
           this.requireSession().refs.lookup(other),

@@ -9,7 +9,7 @@ import type { Locator as PwLocator, Page } from 'playwright-core';
 import { describe, expect, it, vi } from 'vitest';
 import { EngineError, TestError, type LocatorAction } from 'e2e/engine';
 import { classifyActionError, dispatchLocatorAction, dispatchPointerAction } from '../../src/actions.ts';
-import type { ActionTarget } from '../../src/support.ts';
+import { performViewportSwipe, type ActionTarget } from '../../src/support.ts';
 
 vi.mock('node:timers/promises', () => ({
   setTimeout: (ms: number, value?: unknown, options?: { signal?: AbortSignal }) =>
@@ -378,5 +378,31 @@ describe('dispatchPointerAction', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe.each(['root', 'node'] as const)('%s swipe checkpoint', kind => {
+    it.each(['cancelled', 'expired'] as const)('sends no wheel after preparation is %s', async stop => {
+      vi.useFakeTimers({ now: 0 });
+      try {
+        const controller = new AbortController();
+        const operation = { ...OPERATION, signal: controller.signal };
+        const interrupt = () => {
+          if (stop === 'cancelled') controller.abort();
+          else vi.advanceTimersByTime(operation.timeoutMs);
+        };
+        const { page } = stubPage();
+        const node = stubLocator();
+        vi.spyOn(page, 'viewportSize').mockImplementation(() => { interrupt(); return { width: 800, height: 600 }; });
+        node.locator.hover.mockImplementation(async () => { interrupt(); });
+        const wheel = kind === 'root' ? vi.spyOn(page.mouse, 'wheel') : node.wheel;
+        const swipe = kind === 'root'
+          ? performViewportSwipe(page, 'down', 'none', operation)
+          : dispatchLocatorAction(node.target, { kind: 'swipe', direction: 'down' }, operation, lookup);
+        await expect(swipe).rejects.toMatchObject({ code: stop === 'cancelled' ? 'CANCELLED' : 'OPERATION_TIMEOUT' });
+        expect(wheel).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

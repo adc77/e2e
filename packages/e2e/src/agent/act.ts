@@ -292,7 +292,8 @@ class ActDispatch {
         ...(this.spec.vision === undefined ? {} : { vision: this.spec.vision }),
       },
       target: this.runtime.target,
-      attempt: this.runtime.attempt,
+      // Redacted per step like the context: a secret resolved since collection is covered too.
+      attempt: { ...this.runtime.attempt, titlePath: this.runtime.attempt.titlePath.map((part) => this.runtime.redact(part)) },
       ...(replayedPrefix === undefined ? {} : { replayedPrefix }),
       signal: this.accounting.signal,
       // Resolved on first read, so executors that bring their own model (or
@@ -477,7 +478,7 @@ class ActDispatch {
       ...(this.spec.vision === 'only' && this.feed.pixelsShown ? { visionOnly: true } : {}),
       ...(latest !== undefined ? { observationRevision: latest.revision } : {}),
       ...(this.turns !== undefined && this.turns.length > 0 ? { turns: this.turns } : {}),
-      ...this.feed.visionReport(),
+      ...this.feed.reportDetails(),
     });
     this.writeTranscript();
   }

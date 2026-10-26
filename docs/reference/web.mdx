@@ -343,15 +343,13 @@ web({ clock: { time: '2032-01-02T03:04:05Z' } });
 web({ clock: { time: 0, mode: 'paused' } });
 ```
 
-- Use a date string with an explicit offset, or milliseconds since the Unix epoch.
+- Use a date string or milliseconds since the Unix epoch.
 - Navigation, reload, and `app.restart()` keep the context's current time.
 - Each attempt, `app.clearState()`, and session restore start again at the configured time.
 - Only the browser clock changes. The app server and runner keep their own clocks.
 - A [persistent context](#recovering-a-cdp-transport) does not support this option.
 
-`paused` also stops page timers and animation frames. An app that needs them
-to finish loading can stall. This option does not add clock controls to the
-`browser` fixture.
+`paused` has no time-advance controls, so use it only for pages that need no timers or animation frames.
 
 ```ts
 export interface WebClock {

@@ -4,6 +4,7 @@ import { setTimeout } from 'node:timers/promises';
 import type { ElementHandle, Locator as PwLocator, Mouse, Page } from 'playwright-core';
 import { Deadline, EngineError, withinCleanupBudget, type EngineCleanupContext, type Momentum, type ScrollDirection, type ViewportPoint, type ViewportSize } from 'e2e/engine';
 import { ConfigurationError, InfrastructureError, TestError } from 'e2e/engine';
+import { connectionAbort, type ConnectionBudget } from './operation-budget.ts';
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const;
 
@@ -366,7 +367,7 @@ export function isNavigationRace(cause: unknown): boolean {
  * be captured in time is not a race.
  */
 export function navigationStaleOr(cause: unknown, operation: string): Error {
-  if (!isClassified(cause) && isNavigationRace(cause)) {
+  if (!isClassified(cause) && !isPwTimeout(cause) && isNavigationRace(cause)) {
     return new EngineError('NODE_STALE', `${operation}: ${message(cause)}`, {
       retryable: true,
       cause,
@@ -381,7 +382,7 @@ export function navigationStaleOr(cause: unknown, operation: string): Error {
  * waits, so a `TimeoutError` there is a budget that ran out, not a miss.
  */
 export function staleOr(cause: unknown, operation: string): Error {
-  if (isClassified(cause)) return cause;
+  if (isClassified(cause) || isPwTimeout(cause)) return translatePwError(cause, operation);
   const text = message(cause);
   if (STALE_PATTERN.test(text) || isNavigationRace(cause)) {
     return new EngineError('NODE_STALE', `${operation}: ${text}`, { retryable: true, cause });
@@ -393,16 +394,18 @@ export async function performViewportSwipe(
   page: Page,
   direction: ScrollDirection,
   momentum: Momentum,
-  timeout: number,
+  operation: ConnectionBudget,
+  at?: ViewportPoint,
 ): Promise<void> {
-  const deadline = new Deadline(timeout);
+  const deadline = new Deadline(operation.timeoutMs);
+  if (at !== undefined) await page.mouse.move(at.x, at.y);
   const viewport = await currentViewport(page);
   const distance = swipeDistance(
     direction === 'up' || direction === 'down' ? viewport.height : viewport.width,
     momentum,
   );
   const [deltaX, deltaY] = wheelDelta(direction, distance);
-  await wheelRendered(page, deltaX, deltaY, deadline);
+  await wheelRendered(page, deltaX, deltaY, operation, deadline);
 }
 
 /**
@@ -453,8 +456,9 @@ export async function performElementSwipe(
   target: ActionTarget,
   direction: ScrollDirection,
   momentum: Momentum,
-  timeout: number,
+  operation: ConnectionBudget,
 ): Promise<void> {
+  const { timeoutMs: timeout } = operation;
   const deadline = new Deadline(timeout);
   // A node the pointer already hovers takes the wheel where it is; one hit at
   // its centre takes it there, at the box that hit test read; otherwise hover
@@ -477,7 +481,7 @@ export async function performElementSwipe(
   const [deltaX, deltaY] = wheelDelta(direction, distance);
   const page = await targetPage(target);
   if (aimed.aim === 'centre') await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await wheelRendered(page, deltaX, deltaY, deadline);
+  await wheelRendered(page, deltaX, deltaY, operation, deadline);
 }
 
 /**
@@ -486,7 +490,9 @@ export async function performElementSwipe(
  * a read right after a bare `mouse.wheel` can see the document it left. A
  * hidden document renders no frames, so it resolves at once.
  */
-async function wheelRendered(page: Page, deltaX: number, deltaY: number, deadline: Deadline): Promise<void> {
+async function wheelRendered(page: Page, deltaX: number, deltaY: number, operation: ConnectionBudget, deadline: Deadline): Promise<void> {
+  if (operation.signal.aborted) throw connectionAbort(operation.signal, 'swipe');
+  if (deadline.remaining() <= 0) throw new EngineError('OPERATION_TIMEOUT', 'swipe timed out before wheel dispatch', { retryable: false });
   await page.mouse.wheel(deltaX, deltaY);
   // The document timeline advances even when the app's clock and animation callbacks are paused.
   const frame = await page.evaluate(() => document.timeline.currentTime);

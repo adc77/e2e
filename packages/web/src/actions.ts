@@ -17,7 +17,7 @@ import {
   translatePwError,
   type ActionTarget,
 } from './support.ts';
-import { connectionAbort, type ConnectionBudget } from './operation-budget.ts';
+import type { ConnectionBudget } from './operation-budget.ts';
 
 /** How long a long press holds the button when the action names no duration. */
 const DEFAULT_LONG_PRESS_MS = 500;
@@ -179,7 +179,7 @@ export async function dispatchLocatorAction(
     case 'swipe':
       // The agent's node scroll and `screen` swipes both arrive here: a wheel
       // gesture over the node, sized by its own box.
-      await performElementSwipe(target, action.direction, action.momentum ?? 'none', timeout);
+      await performElementSwipe(target, action.direction, action.momentum ?? 'none', operation);
       return;
   }
 }
@@ -195,7 +195,6 @@ export async function dispatchPointerAction(
   action: PointerAction,
   operation: ConnectionBudget,
 ): Promise<void> {
-  const deadline = new Deadline(operation.timeoutMs);
   const { signal } = operation;
   const { mouse } = page;
   const point = nearestPixel(at);
@@ -222,15 +221,9 @@ export async function dispatchPointerAction(
       // A swipe along a path is a pointer drag on a document platform.
       await performPointDrag(mouse, point, action.target, action.durationMs, signal);
       return;
-    case 'swipe': {
-      // The pointer moves to the point first so the scrollable under it receives the wheel.
-      await mouse.move(point.x, point.y);
-      if (signal.aborted) throw connectionAbort(signal, 'swipe');
-      const remaining = deadline.remaining();
-      if (remaining <= 0) throw new EngineError('OPERATION_TIMEOUT', 'swipe timed out before wheel dispatch', { retryable: false });
-      await performViewportSwipe(page, action.direction, action.momentum ?? 'none', remaining);
+    case 'swipe':
+      await performViewportSwipe(page, action.direction, action.momentum ?? 'none', operation, point);
       return;
-    }
   }
 }
 

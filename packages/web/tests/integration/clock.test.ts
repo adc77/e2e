@@ -113,14 +113,20 @@ describe('browser clock', () => {
     });
   });
 
-  it.each([undefined, 'running'] as const)('advances time and fires page timers in %s mode', async mode => {
+  it.each([undefined, 'running'] as const)('advances time through navigation and fires page timers in %s mode', async mode => {
     await attempt({ clock: { time: 0, ...(mode === undefined ? {} : { mode }) } }, async (engine, live) => {
       await engine.session!.open!(url, operation());
       const boot = await reading(live.page());
       expect(boot.time).toBeGreaterThanOrEqual(0);
-      expect(boot.time).toBeLessThan(TIME);
+      expect(boot.time).toBeLessThan(60_000);
       await expect.poll(() => live.page().evaluate(() => window.clockProof.fired)).toBe(true);
       expect(await live.page().evaluate(() => Date.now())).toBeGreaterThan(boot.time);
+      await live.context().clock.fastForward(120_000);
+      const beforeNavigation = await live.page().evaluate(() => Date.now());
+      await engine.session!.open!(`${url}/next`, operation());
+      const next = await reading(live.page());
+      expect(next.time).toBeGreaterThanOrEqual(beforeNavigation);
+      expect(next.time).toBeLessThan(beforeNavigation + 60_000);
     });
   });
 

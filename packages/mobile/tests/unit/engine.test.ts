@@ -398,6 +398,39 @@ describe('lifecycle', () => {
     expect(coldEnv).toEqual({});
   });
 
+  it('skips a booted device another agent-device session holds, keeps one its own slot session holds, and fails when every booted one is held', async () => {
+    const h = harness({ device: undefined });
+    h.fake.respond('devices.list', () => [
+      { platform: 'ios', id: 'A', name: 'A', booted: true, claimedBy: { session: 't3-holder', workspace: '/elsewhere' } },
+      { platform: 'ios', id: 'B', name: 'B', booted: true },
+      { platform: 'ios', id: 'C', name: 'C', booted: true, claimedBy: { session: 'e2e-ios-1', workspace: '/project' } },
+      { platform: 'ios', id: 'D', name: 'D', booted: true, claimedBy: { session: 'e2e-ios-2', workspace: '/project' } },
+    ]);
+    const lines: string[] = [];
+    const info = { runId: 'run-1', targetName: 'ios', projectRoot: PROJECT_ROOT, slots: 2, env: {}, signal: new AbortController().signal, headed: false, log: (line: string) => lines.push(line) };
+    const result = await h.prepare(info);
+    // e2e-ios-2 is no slot of a two-slot run, so its device is as foreign as another tool's.
+    expect(result).toMatchObject({ workers: 2 });
+    expect(h.fake.calls.filter((call) => call.method === 'devices.boot').map((call) => call.args)).toEqual([
+      { platform: 'ios', udid: 'B' },
+      { platform: 'ios', udid: 'C' },
+    ]);
+    expect(lines[0]).toBe(
+      '4 booted ios device(s), skipping 2 held by another agent-device session (A by session "t3-holder", D by session "e2e-ios-2"); driving 2: B, C',
+    );
+
+    const held = harness({ device: undefined });
+    held.fake.respond('devices.list', () => [
+      { platform: 'ios', id: 'A', name: 'A', booted: true, claimedBy: { session: 't3-holder', workspace: '/elsewhere' } },
+    ]);
+    await expect(held.prepare({ ...info, slots: 1 })).rejects.toMatchObject({
+      code: 'ENGINE_FAILURE',
+      retryable: false,
+      message: expect.stringMatching(/every booted ios device is held by another agent-device session \(A by session "t3-holder"\)/),
+    });
+    expect(held.fake.methods()).not.toContain('devices.boot');
+  });
+
   it('drives a discovered Android emulator by its serial, and reads a configured serial, UDID, or name as agent-device does', async () => {
     const h = harness({ device: undefined, platform: 'android' });
     h.fake.respond('devices.list', () => [{ platform: 'android', id: 'emulator-5554', name: 'test', booted: true }]);
@@ -685,6 +718,33 @@ describe('observation', () => {
     }
   });
 
+  it('keeps the known viewport for an app drawn smaller than the screen, and follows a rotation', async () => {
+    const screen = { logicalWidth: 390, logicalHeight: 844, width: 1170, height: 2532, pixelDensity: 3 };
+    // Calendar behind Notification Center, read live on an iOS 26 simulator: its tree, healthy, clipped to a third of the screen.
+    const shrunk = { ...SETTINGS_SNAPSHOT, viewport: { width: 130, height: 281.33 }, snapshotQuality: { state: 'healthy' } };
+    const h = harness();
+    h.fake.respond('capture.screenshot', () => screen);
+    await openAttempt(h);
+    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 390, height: 844 });
+    h.fake.respond('capture.snapshot', () => shrunk);
+    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 390, height: 844 });
+    expect(h.fake.methods().filter((method) => method === 'capture.screenshot')).toHaveLength(1);
+
+    // A rotation is the known size transposed: taken as it comes, without asking the device.
+    h.fake.respond('capture.snapshot', () => ({ ...SETTINGS_SNAPSHOT, viewport: { width: 844, height: 390 } }));
+    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 844, height: 390 });
+    expect(h.fake.methods().filter((method) => method === 'capture.screenshot')).toHaveLength(1);
+
+    // Any other size replaces the known one when the device's screen agrees.
+    h.fake.respond('capture.screenshot', () => ({ logicalWidth: 402, logicalHeight: 874 }));
+    h.fake.respond('capture.snapshot', () => ({ ...SETTINGS_SNAPSHOT, viewport: { width: 402, height: 874 } }));
+    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 402, height: 874 });
+    // A real device's screenshot reports no logical size: the tree's size stands.
+    h.fake.respond('capture.screenshot', () => ({ width: 1125, height: 2001 }));
+    h.fake.respond('capture.snapshot', () => ({ ...SETTINGS_SNAPSHOT, viewport: { width: 375, height: 667 } }));
+    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 375, height: 667 });
+  });
+
   it('reports the keyboard state the capture measured, and nothing when it measured none', async () => {
     const h = harness();
     await openAttempt(h);
@@ -702,14 +762,15 @@ describe('observation', () => {
   });
 
   it('measures the screen in the viewport the snapshot publishes, and in its tree when it publishes none', async () => {
-    const h = harness();
+    const published = harness();
     // The application node reads 390x844; a published viewport outranks it.
-    h.fake.respond('capture.snapshot', () => ({ ...SETTINGS_SNAPSHOT, viewport: { width: 402, height: 874 } }));
-    await openAttempt(h);
-    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 402, height: 874 });
-    h.fake.respond('capture.snapshot', () => SETTINGS_SNAPSHOT);
-    expect((await h.engine.observe!(operation())).viewport).toEqual({ width: 390, height: 844 });
-    expect(h.fake.methods()).not.toContain('capture.screenshot');
+    published.fake.respond('capture.snapshot', () => ({ ...SETTINGS_SNAPSHOT, viewport: { width: 402, height: 874 } }));
+    await openAttempt(published);
+    expect((await published.engine.observe!(operation())).viewport).toEqual({ width: 402, height: 874 });
+    const tree = harness();
+    await openAttempt(tree);
+    expect((await tree.engine.observe!(operation())).viewport).toEqual({ width: 390, height: 844 });
+    expect([...published.fake.methods(), ...tree.fake.methods()]).not.toContain('capture.screenshot');
   });
 
   it('is an empty screen before any app is open when no app is pinned, and a fault when one is', async () => {
@@ -1012,6 +1073,20 @@ describe('a screen agent-device cannot read yet', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('locates nothing on an iOS app not running yet after a launch, and fails on one that exits later', async () => {
+    const h = harness();
+    await openAttempt(h);
+    const notRunning = () => {
+      throw new AppError('COMMAND_FAILED', "app 'com.foo' is not running", { runnerErrorCode: 'APP_NOT_RUNNING' });
+    };
+    h.fake.respond('capture.snapshot', notRunning);
+    await expect(h.engine.locate!(ABOUT, operation())).resolves.toEqual([]);
+    h.fake.respond('capture.snapshot', () => SETTINGS_SNAPSHOT);
+    await expect(h.engine.locate!(ABOUT, operation())).resolves.toHaveLength(1);
+    h.fake.respond('capture.snapshot', notRunning);
+    await expect(h.engine.locate!(ABOUT, operation())).rejects.toMatchObject({ code: 'ENGINE_FAILURE' });
   });
 
   it('still fails an observation on it', async () => {
@@ -1377,15 +1452,23 @@ describe('device fixture', () => {
         'Unable to dismiss the iOS keyboard: the keyboard exposes no dismiss key, and background taps are never attempted',
       );
     };
-    const KEYBOARD_UP = { ...SETTINGS_SNAPSHOT, keyboard: { kind: 'visible', frame: { x: 0, y: 583, width: 390, height: 261 } } };
-    const KEYBOARD_GONE = { ...SETTINGS_SNAPSHOT, keyboard: { kind: 'absent' } };
+    const KEYBOARD_FRAME = { x: 0, y: 583, width: 390, height: 261 };
+    /** A form in a scroll view with a checkbox row across the centre of the screen, where a drag from the centre would toggle it. */
+    const FORM_NODES = [
+      { ref: '@e1', index: 0, depth: 0, type: 'application', label: 'Order', rect: { x: 0, y: 0, width: 390, height: 844 } },
+      { ref: '@e2', index: 1, parentIndex: 0, depth: 1, type: 'scroll-view', rect: { x: 0, y: 100, width: 390, height: 744 } },
+      { ref: '@e3', index: 2, parentIndex: 1, depth: 2, type: 'text-field', label: 'Notes', rect: { x: 20, y: 150, width: 350, height: 44 } },
+      { ref: '@e4', index: 3, parentIndex: 1, depth: 2, type: 'other', value: 'checkbox, unchecked', label: 'Cheese', rect: { x: 20, y: 400, width: 350, height: 44 } },
+    ];
+    const KEYBOARD_UP = { ...SETTINGS_SNAPSHOT, nodes: FORM_NODES, keyboard: { kind: 'visible', frame: KEYBOARD_FRAME } };
+    const KEYBOARD_GONE = { ...SETTINGS_SNAPSHOT, nodes: FORM_NODES, keyboard: { kind: 'absent' } };
     /** Answers the captures the dismissal takes, in order, then the last one forever. */
     const captures = (h: Harness, snapshots: readonly unknown[]) => {
       let taken = 0;
       h.fake.respond('capture.snapshot', () => snapshots[Math.min(taken++, snapshots.length - 1)]);
     };
 
-    it('drags at the centre of the screen the way a user does, and stops once the keyboard is gone', async () => {
+    it('drags from the point nearest the centre that no control covers, and stops once the keyboard is gone', async () => {
       const h = harness();
       await openAttempt(h);
       await observed(h, 'Back');
@@ -1400,10 +1483,32 @@ describe('device fixture', () => {
         'interactions.swipe',
         'capture.snapshot',
       ]);
-      // The viewport is 390 by 844: a short horizontal drag from the centre, 3 percent of the width.
+      // The centre (195, 422) is on the checkbox, so the drag starts on the nearest row of the grid clear of it, and runs 3 percent of the width.
       expect(h.fake.lastArgs('interactions.swipe')).toEqual({
-        from: { x: 195, y: 422 },
-        to: { x: expect.closeTo(183.3, 2), y: 422 },
+        from: { x: 195, y: 383 },
+        to: { x: expect.closeTo(183.3, 2), y: 383 },
+      });
+    });
+
+    it('drags at the centre of a screen rotated since the last observation', async () => {
+      const h = harness();
+      await openAttempt(h);
+      await observed(h, 'Back');
+      const device = fixture(h);
+      h.fake.respond('command.keyboard', NO_DISMISS_KEY);
+      const landscape = [
+        { ref: '@e1', index: 0, depth: 0, type: 'application', label: 'Order', rect: { x: 0, y: 0, width: 844, height: 390 } },
+        { ref: '@e2', index: 1, parentIndex: 0, depth: 1, type: 'scroll-view', rect: { x: 0, y: 60, width: 844, height: 330 } },
+        { ref: '@e3', index: 2, parentIndex: 1, depth: 2, type: 'text-field', label: 'Notes', rect: { x: 20, y: 80, width: 804, height: 44 } },
+      ];
+      captures(h, [
+        { ...KEYBOARD_UP, viewport: { width: 844, height: 390 }, nodes: landscape, keyboard: { kind: 'visible', frame: { x: 0, y: 230, width: 844, height: 160 } } },
+        KEYBOARD_GONE,
+      ]);
+      await device.dismissKeyboard();
+      expect(h.fake.lastArgs('interactions.swipe')).toEqual({
+        from: { x: 422, y: 195 },
+        to: { x: expect.closeTo(396.68, 2), y: 195 },
       });
     });
 
@@ -1417,9 +1522,86 @@ describe('device fixture', () => {
       await device.dismissKeyboard();
       const swipes = h.fake.calls.filter((call) => call.method === 'interactions.swipe').map((call) => call.args);
       expect(swipes).toEqual([
-        { from: { x: 195, y: 422 }, to: { x: expect.closeTo(183.3, 2), y: 422 } },
-        { from: { x: 195, y: 422 }, to: { x: 195, y: expect.closeTo(396.68, 2) } },
+        { from: { x: 195, y: 383 }, to: { x: expect.closeTo(183.3, 2), y: 383 } },
+        { from: { x: 195, y: 383 }, to: { x: 195, y: expect.closeTo(357.68, 2) } },
       ]);
+    });
+
+    it('starts only inside a scroll view when the screen has one', async () => {
+      const h = harness();
+      await openAttempt(h);
+      await observed(h, 'Back');
+      const device = fixture(h);
+      h.fake.respond('command.keyboard', NO_DISMISS_KEY);
+      const header = {
+        ...KEYBOARD_UP,
+        nodes: [
+          FORM_NODES[0],
+          { ref: '@e2', index: 1, parentIndex: 0, depth: 1, type: 'scroll-view', rect: { x: 0, y: 100, width: 390, height: 200 } },
+          { ref: '@e3', index: 2, parentIndex: 1, depth: 2, type: 'text-field', label: 'Notes', rect: { x: 20, y: 150, width: 350, height: 44 } },
+        ],
+      };
+      captures(h, [header, KEYBOARD_GONE]);
+      await device.dismissKeyboard();
+      // The centre is clear but outside the scroll view, which ends at y 300: the drag starts on its lowest row of the grid instead.
+      expect(h.fake.lastArgs('interactions.swipe')).toMatchObject({ from: { x: 195, y: expect.closeTo(295.25, 2) } });
+    });
+
+    it('starts on plain text, which a touch does nothing to', async () => {
+      const h = harness();
+      await openAttempt(h);
+      await observed(h, 'Back');
+      const device = fixture(h);
+      h.fake.respond('command.keyboard', NO_DISMISS_KEY);
+      const paragraphs = {
+        ...KEYBOARD_UP,
+        nodes: [
+          ...FORM_NODES.slice(0, 2),
+          { ref: '@e3', index: 2, parentIndex: 1, depth: 2, type: 'static-text', label: 'Terms', rect: { x: 16, y: 120, width: 370, height: 460 } },
+        ],
+      };
+      captures(h, [paragraphs, KEYBOARD_GONE]);
+      await device.dismissKeyboard();
+      expect(h.fake.lastArgs('interactions.swipe')).toMatchObject({ from: { x: 195, y: 422 } });
+    });
+
+    it('drags at the centre of a flattened tree, which shows no control to steer clear of', async () => {
+      const h = harness();
+      await openAttempt(h);
+      await observed(h, 'Back');
+      const device = fixture(h);
+      h.fake.respond('command.keyboard', NO_DISMISS_KEY);
+      const flattened = {
+        ...KEYBOARD_UP,
+        nodes: [
+          ...FORM_NODES.slice(0, 2),
+          { ref: '@e3', index: 2, parentIndex: 1, depth: 2, type: 'other', rect: { x: 0, y: 100, width: 390, height: 744 } },
+        ],
+      };
+      captures(h, [flattened, KEYBOARD_GONE]);
+      await device.dismissKeyboard();
+      expect(h.fake.lastArgs('interactions.swipe')).toMatchObject({ from: { x: 195, y: 422 } });
+    });
+
+    it('refuses to drag when every point above the keyboard is on a control', async () => {
+      const h = harness();
+      await openAttempt(h);
+      await observed(h, 'Back');
+      const device = fixture(h);
+      h.fake.respond('command.keyboard', NO_DISMISS_KEY);
+      const covered = {
+        ...KEYBOARD_UP,
+        nodes: [
+          FORM_NODES[0],
+          { ref: '@e2', index: 1, parentIndex: 0, depth: 1, type: 'button', label: 'Canvas', rect: { x: 0, y: 0, width: 390, height: 583 } },
+        ],
+      };
+      captures(h, [covered]);
+      await expect(device.dismissKeyboard()).rejects.toMatchObject({
+        code: 'UNSUPPORTED_CAPABILITY',
+        message: expect.stringMatching(/every point above it .*is on a control.*Done or close control/s),
+      });
+      expect(h.fake.calls.filter((call) => call.method === 'interactions.swipe')).toHaveLength(0);
     });
 
     it('fails naming the alternatives when both drags leave the keyboard up', async () => {
