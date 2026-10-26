@@ -12,6 +12,7 @@ import type { SemanticNode } from '../engine/surface.ts';
 import type { TraceTargetDescriptor } from '../cache/trace.ts';
 import type { ActPosition } from '../types.ts';
 import { relocateDescriptor } from '../cache/relocate.ts';
+import { edgeDescriptor, requireEdgeObservable } from '../cache/positions.ts';
 import { TestError } from '../internal/errors.ts';
 import { isEditable } from '../internal/roles.ts';
 import type { StepAgentDetails, VisionDegradation } from '../run/steps.ts';
@@ -275,7 +276,7 @@ export class ObservationFeed {
     );
     this.publish(observation);
     if (observation.kind === 'pixels') return undefined;
-    this.requireCompletePosition(descriptor, observation);
+    requireEdgeObservable(descriptor, observation);
     const relocated = relocateDescriptor(descriptor, observation.nodes);
     if (relocated.kind !== 'found') return undefined;
     const node = observation.nodes.get(relocated.id);
@@ -469,27 +470,14 @@ export class ObservationFeed {
     if (earlier === undefined) return undefined;
     const descriptor = this.descriptorOf(earlier);
     if (descriptor === undefined) return undefined;
-    this.requireCompletePosition(descriptor, latest);
+    requireEdgeObservable(descriptor, latest);
     const relocated = relocateDescriptor(descriptor, latest.nodes);
     return relocated.kind === 'found' ? latest.nodes.get(relocated.id) : undefined;
   }
 
-  /** A partial tree cannot prove either edge, including while re-finding a stale handle. */
-  private requireCompletePosition(descriptor: TraceTargetDescriptor, observation: SemanticAgentObservation): void {
-    if (descriptor.ordinal !== undefined && observation.truncated) {
-      throw new TestError('UNSUPPORTED_CAPABILITY', 'agent.act position requires a complete semantic observation');
-    }
-  }
-
-  /** The scoped edge replaces content identity only for the explicitly named repeated control. */
+  /** The scoped edge replaces content identity only for the named repeated control. */
   private descriptorOf(node: RedactedNode): TraceTargetDescriptor | undefined {
-    const position = this.options.position;
-    if (position === undefined || node.testId !== position.testId) return describeTarget(node);
-    return {
-      ...(node.role === undefined ? {} : { role: node.role }),
-      testId: position.testId,
-      ordinal: position.at,
-    };
+    return edgeDescriptor(node, this.options.position?.at, this.options.position?.testId) ?? describeTarget(node);
   }
 
 }

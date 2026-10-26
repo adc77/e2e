@@ -95,11 +95,12 @@ function validatePosition(value: unknown): ActPosition | undefined {
     throw new TestError('INVALID_ARGUMENT', 'agent.act position must be { testId, at: "first" | "last" }');
   }
   const { testId, at } = value as Record<string, unknown>;
-  if (Object.keys(value).some((key) => key !== 'testId' && key !== 'at') ||
-    typeof testId !== 'string' || testId === '' || testId.length > MAX_TRACE_DESCRIPTOR_CHARS || collapseText(testId) !== testId ||
-    (at !== 'first' && at !== 'last')) {
-    throw new TestError('INVALID_ARGUMENT', 'agent.act position requires a nonblank, normalized testId within the recording limit and at: "first" | "last"');
-  }
+  const unknown = Object.keys(value).find(key => key !== 'testId' && key !== 'at');
+  if (unknown !== undefined) throw new TestError('INVALID_ARGUMENT', `agent.act position does not take ${JSON.stringify(unknown)}`);
+  if (typeof testId !== 'string' || testId.trim() === '') throw new TestError('INVALID_ARGUMENT', 'agent.act position.testId must be a nonblank string');
+  if (testId.length > MAX_TRACE_DESCRIPTOR_CHARS) throw new TestError('INVALID_ARGUMENT', `agent.act position.testId must be at most ${MAX_TRACE_DESCRIPTOR_CHARS} characters`);
+  if (collapseText(testId) !== testId) throw new TestError('INVALID_ARGUMENT', 'agent.act position.testId must have normalized whitespace');
+  if (at !== 'first' && at !== 'last') throw new TestError('INVALID_ARGUMENT', 'agent.act position.at must be "first" or "last"');
   return Object.freeze({ testId, at });
 }
 

@@ -25,6 +25,7 @@ import { sanitizeText } from '../internal/errors.ts';
 import type { KeyModifier } from '../engine/contract.ts';
 import { bound, collapseText } from '../internal/text.ts';
 import type { ScrollDirection } from '../types.ts';
+import { edgeDescriptor } from '../cache/positions.ts';
 
 /** One committed grammar action, addressed by the node it actually ran against. */
 export type RecordableAction =
@@ -282,10 +283,7 @@ function describePlaced(
   const { children: _children, ...fields } = node;
   const described = describeTarget(redactNode(fields, redaction));
   if (described === undefined) return undefined;
-  if (placement.ordinal !== undefined) {
-    if (described.testId === undefined) return undefined;
-    return { ...(described.role === undefined ? {} : { role: described.role }), testId: described.testId, ordinal: placement.ordinal };
-  }
+  if (placement.ordinal !== undefined) return edgeDescriptor(described, placement.ordinal);
   return {
     ...described,
     ...(placement.within === undefined ? {} : { within: bound(redaction.redact(placement.within), MAX_WITHIN_CHARS) }),

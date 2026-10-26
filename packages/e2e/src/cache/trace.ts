@@ -21,6 +21,7 @@ import { timestamp } from '../internal/ids.ts';
 import type { ScrollDirection } from '../types.ts';
 import { bound } from '../internal/text.ts';
 import { readBoundedText, readRecordedModel, type RecordedModel } from './trace-fields.ts';
+import { isEdgeDescriptor, readTracePosition } from './positions.ts';
 
 export type { RecordedModel } from './trace-fields.ts';
 
@@ -127,9 +128,6 @@ export interface TracePosition {
   readonly of: number;
 }
 
-/** Most twins a positional recording distinguishes between; beyond it a list is data, not a control set. */
-const MAX_TRACE_POSITION_OF = 1000;
-
 export interface TraceTargetDescriptor {
   readonly role?: string;
   readonly name?: string;
@@ -140,7 +138,13 @@ export interface TraceTargetDescriptor {
   readonly inputPurpose?: string;
   /** Key of the container the target sat in (a row's first cell); relocation requires the same. */
   readonly within?: string;
-  /** The recorded index among the same count of matching controls. */
+  /**
+   * Set only when the other fields matched several controls on the recording
+   * screen (one unlabeled "Set up" per card): which of them the target was.
+   * Replay honors it only when the live screen shows exactly as many, so a
+   * twin that appeared or vanished still diverges instead of guessing.
+   * Explicit first/last intent uses `ordinal` instead of this counted place.
+   */
   readonly position?: TracePosition;
   /** Explicit first/last intent among observed matches of the test id and role. */
   readonly ordinal?: 'first' | 'last';
@@ -919,7 +923,7 @@ function readDescriptor(document: unknown): TraceTargetDescriptor | undefined {
   }
   if (Object.keys(descriptor).length === 0) return undefined;
   if (raw['position'] !== undefined) {
-    const position = readPosition(raw['position']);
+    const position = readTracePosition(raw['position']);
     if (position === undefined) return undefined;
     descriptor['position'] = position;
   }
@@ -928,11 +932,9 @@ function readDescriptor(document: unknown): TraceTargetDescriptor | undefined {
     if (states === undefined) return undefined;
     descriptor['states'] = states;
   }
-  const ordinal = raw['ordinal'];
-  if (ordinal !== undefined) {
-    if ((ordinal !== 'first' && ordinal !== 'last') || descriptor['testId'] === undefined ||
-      Object.keys(descriptor).some((field) => field !== 'role' && field !== 'testId')) return undefined;
-    descriptor['ordinal'] = ordinal;
+  if (raw['ordinal'] !== undefined) {
+    const edge = { ...descriptor, ordinal: raw['ordinal'] };
+    return isEdgeDescriptor(edge) ? edge : undefined;
   }
   return descriptor as TraceTargetDescriptor;
 }
@@ -945,16 +947,6 @@ function readStates(document: unknown): readonly TraceAnchorState[] | undefined 
   return states.every((state, index) => index === 0 || states[index - 1]! < state) ? states : undefined;
 }
 
-/** A well-formed position: two safe integers with the index inside the count. */
-function readPosition(document: unknown): TracePosition | undefined {
-  if (typeof document !== 'object' || document === null || Array.isArray(document)) return undefined;
-  const { index, of } = document as Record<string, unknown>;
-  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(of)) return undefined;
-  // `of: 1` is an anonymous target counted alone (`describePosition`); a named target never records a position under two.
-  if ((of as number) < 1 || (of as number) > MAX_TRACE_POSITION_OF) return undefined;
-  if ((index as number) < 0 || (index as number) >= (of as number)) return undefined;
-  return { index: index as number, of: of as number };
-}
 
 function readProvenance(document: unknown): TraceProvenance | undefined {
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {

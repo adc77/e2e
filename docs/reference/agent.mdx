@@ -89,18 +89,9 @@ await agent.act('open the first inbox item', {
 });
 ```
 
-`testId` must be nonblank, whitespace-normalized and at most 300 characters.
-
-Matching node actions must select that edge before input is sent. Other
-test ids retain ordinary matching. Recordings keep the test id, role and
-edge, without the row's label or container text. First, last and ordinary
-calls have separate recordings. End-state checks remain unchanged.
-
-Order is the engine's semantic document order across all observed matches
-of that test id and role. An empty set hands replay off, or fails with
-`REPLAY_STALE` under strict cache. An incomplete tree cannot establish an
-edge; a live positional action refuses it with `POLICY_DENIED`. Virtualized
-or paginated rows absent from the observation do not participate. Use distinct test ids for separate lists.
+Recordings follow the first or last match as the list changes. Unloaded or
+virtualized rows absent from the observation do not count; use different
+test ids for independent lists.
 
 `onAction` runs after each action the step completes, once the screen
 settles, and before the next action. That includes actions the

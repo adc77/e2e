@@ -15,7 +15,10 @@
  * rules and can never drift from relocation.
  */
 
-import type { RedactedNode } from '../agent/observation.ts';
+import type { RedactedNode, SemanticAgentObservation } from '../agent/observation.ts';
+import type { ActPosition } from '../types.ts';
+import { TestError } from '../internal/errors.ts';
+import { edgeDescriptor, isEdgeDescriptor, requireEdgeObservable, type EdgeDescriptor } from './positions.ts';
 import { containerKey, describeTarget, parentsOf } from '../agent/actions.ts';
 import type { TracePosition, TraceTargetDescriptor } from './trace.ts';
 
@@ -112,7 +115,7 @@ function withoutTestId(descriptor: TraceTargetDescriptor): TraceTargetDescriptor
 export function descriptorTiers(descriptor: TraceTargetDescriptor): readonly TraceTargetDescriptor[] {
   if (!isRelocatableDescriptor(descriptor)) return [];
   if (descriptor.ordinal !== undefined) {
-    return descriptor.testId !== undefined && Object.keys(descriptor).every((field) => field === 'role' || field === 'testId' || field === 'ordinal') ? [descriptor] : [];
+    return isEdgeDescriptor(descriptor) ? [descriptor] : [];
   }
   if (descriptor.testId === undefined) return [descriptor];
   const semantic = withoutTestId(descriptor);
@@ -163,7 +166,16 @@ function describeNodes(nodes: ReadonlyMap<string, RedactedNode>): readonly Descr
   return described;
 }
 
-/** Relocates conservatively unless an explicit test-id edge permits selection at a changing count. */
+/**
+ * Relocates one descriptor against the nodes of a fresh observation, tier by
+ * tier (`descriptorTiers`), each exactly-one-or-diverge. Ambiguity at any
+ * tier diverges immediately: two candidates sharing the matched identity
+ * cannot be told apart by waiting, and acting on either would be a guess.
+ * The one exception is a recorded `position`: the recording itself found the
+ * same twins and noted which one it acted on, so the same count of twins
+ * resolves to the same one; any other count diverges as before.
+ * An explicit test-id ordinal instead follows its edge across count changes.
+ */
 export function relocateDescriptor(
   descriptor: TraceTargetDescriptor,
   nodes: ReadonlyMap<string, RedactedNode>,
@@ -252,4 +264,16 @@ export function describePosition(
   if (ids.length < (anonymous ? 1 : 2) || ids.length > MAX_POSITIONED_TWINS) return undefined;
   const index = ids.indexOf(node.ref.id);
   return index === -1 ? undefined : { index, of: ids.length };
+}
+
+/** Validates a matching live edge and reports a model mistake as an action failure. */
+export function requireEdgeTarget(node: RedactedNode, position: ActPosition | undefined, screen: SemanticAgentObservation): EdgeDescriptor | undefined {
+  const descriptor = edgeDescriptor(node, position?.at, position?.testId);
+  if (descriptor === undefined) return undefined;
+  requireEdgeObservable(descriptor, screen);
+  const match = relocateDescriptor(descriptor, screen.nodes);
+  if (match.kind !== 'found' || match.id !== node.ref.id) {
+    throw new TestError('ACTION_FAILED', `agent.act position requires the ${descriptor.ordinal} matching ${JSON.stringify(descriptor.testId)} control`);
+  }
+  return descriptor;
 }

@@ -213,6 +213,25 @@ describe('explicit positional replay through the built runner', () => {
     }
   }, 30_000);
 
+  it('tells the executor about the edge before any input', async () => {
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: 'first' }) });
+    const base = executor('first', { count: 0 });
+    const brain: StepExecutor = {
+      name: 'edge-instruction',
+      async runStep(context) {
+        expect(context.step.instruction).toContain('For controls with test ID "inbox-item", choose the current first match');
+        return base.runStep(context);
+      },
+    };
+    try {
+      items = ['Alpha', 'Beta'];
+      expect((await run(project, brain)).exitCode).toBe(0);
+      expect(selected).toBe('Alpha');
+    } finally {
+      project.cleanup();
+    }
+  }, 30_000);
+
   it('isolates ordinary, first, last and another test-id hint in one cache', async () => {
     const calls = { count: 0 };
     const project = createProject({ [FILE]: source() });
@@ -260,6 +279,7 @@ describe('explicit positional replay through the built runner', () => {
       items = ['Alpha', 'Beta'];
       const wrong = await run(project, executor('last', { count: 0 }));
       expect(wrong.exitCode).not.toBe(0);
+      expect(resultByTitle(wrong, TITLE).attempts.at(-1)!.error?.code).toBe('ACTION_FAILED');
       expect(selected).toBeUndefined();
       expect(readEntries(project)).toHaveLength(0);
     } finally {

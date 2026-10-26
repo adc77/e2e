@@ -124,12 +124,9 @@ Options:
   and a run-unique `unique(\`E2E ${Date.now()}\`)` keeps the cache working
   across runs.
 - `timeout`: the config `timeout`.
-- `position: { testId, at: 'first' | 'last' }`: explicit current order for one
-  repeated test id. Matching node actions must choose that edge; other
-  targets keep ordinary matching. Recordings omit row text and use separate
-  cache identities. Requires a complete observation; order covers observed
-  matches of the recorded role, not unloaded or virtualized rows. Use
-  distinct test ids for separate lists. End-state checks remain live.
+- `position: { testId, at: 'first' | 'last' }`: choose a repeated control's
+  first or last match and replay it across list changes. Unloaded or
+  virtualized rows absent from the observation do not count.
 - `maxSteps` (default 25 actions), `maxModelCalls` (default 25): may only
   lower the agent's limits, else `INVALID_ARGUMENT`.
 - No `schema` (use `extract({ schema })`) and no `vision`: the model decides

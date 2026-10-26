@@ -19,7 +19,7 @@ import { resolveNavigationUrl } from '../internal/urls.ts';
 import type { ActionHook, ActPosition, ClickOptions, JsonValue, Momentum, ScrollDirection, Secret } from '../types.ts';
 import { PROJECT_TOOL_EVENT_PREFIX, type GrammarActionName } from './action-names.ts';
 import { containerKey, describeAction, type Placement, type RecordableAction } from './actions.ts';
-import { describePosition, relocateDescriptor } from '../cache/relocate.ts';
+import { describePosition, requireEdgeTarget } from '../cache/relocate.ts';
 import { isTapActionName, type NodeActionName, type PointActionName, type RecordedAction } from '../cache/trace.ts';
 import { derivedReason } from './derived.ts';
 import { ActionHookError, AgentError, toAgentError } from './error.ts';
@@ -715,16 +715,8 @@ export class ActionDispatcher {
    * number picks the same one.
    */
   private placementOf({ node, observation }: Resolved): Placement {
-    const hint = this.options.position;
-    if (hint !== undefined && node.testId === hint.testId) {
-      if (observation.truncated) throw new TestError('UNSUPPORTED_CAPABILITY', 'agent.act position requires a complete semantic observation');
-      const target = { testId: hint.testId, ordinal: hint.at, ...(node.role === undefined ? {} : { role: node.role }) };
-      const match = relocateDescriptor(target, observation.nodes);
-      if (match.kind !== 'found' || match.id !== node.ref.id) {
-        throw new TestError('INVALID_ARGUMENT', `agent.act position requires the ${hint.at} matching ${JSON.stringify(hint.testId)} control`);
-      }
-      return { ordinal: hint.at };
-    }
+    const edge = requireEdgeTarget(node, this.options.position, observation);
+    if (edge !== undefined) return { ordinal: edge.ordinal };
     const within = containerKey(node.ref.id, observation.nodes, observation.parents);
     const position = describePosition(node, within, observation.nodes);
     return {

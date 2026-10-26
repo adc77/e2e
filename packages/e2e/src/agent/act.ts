@@ -201,6 +201,7 @@ function redactSpec(spec: DispatchSpec, redact: (text: string) => string): Dispa
 /** One step's wiring: the collaborators, the executor's context, and the verdict mapping. */
 class ActDispatch {
   private readonly accounting: StepAccounting;
+  private readonly instruction: string;
   private readonly feed: ObservationFeed;
   private readonly dispatcher: ActionDispatcher;
   /** The step's trace-cache session; undefined when caching is off or the kind is not cacheable. */
@@ -219,6 +220,7 @@ class ActDispatch {
     /** The agent this step runs with. */
     private readonly agent: DispatchAgent,
   ) {
+    this.instruction = spec.position === undefined ? spec.instruction : `${spec.instruction}\nFor controls with test ID ${JSON.stringify(spec.position.testId)}, choose the current ${spec.position.at} match of the chosen role from the observation.`;
     this.accounting = new StepAccounting(runtime, {
       api: spec.api,
       timeoutMs: resolveTimeout(spec.timeout, runtime.config.timeout),
@@ -232,7 +234,7 @@ class ActDispatch {
     this.feed = new ObservationFeed(runtime, this.accounting, queue, {
       maxObservationBytes: agent.config.maxObservationBytes,
       maxInputTokens: agent.config.maxInputTokens,
-      instructionBytes: tokenUpperBound(spec.instruction),
+      instructionBytes: tokenUpperBound(this.instruction),
       position: spec.position,
     });
     this.dispatcher = new ActionDispatcher(runtime, this.accounting, this.feed, queue, {
@@ -289,7 +291,7 @@ class ActDispatch {
       step: {
         kind: this.spec.kind,
         index: this.stepIndex,
-        instruction: this.spec.instruction,
+        instruction: this.instruction,
         params: this.spec.params,
         secrets: [...this.spec.secrets.values()].map((secret) => ({
           name: secret.name,
