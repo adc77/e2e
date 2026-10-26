@@ -138,13 +138,7 @@ export interface TraceTargetDescriptor {
   readonly inputPurpose?: string;
   /** Key of the container the target sat in (a row's first cell); relocation requires the same. */
   readonly within?: string;
-  /**
-   * Set only when the other fields matched several controls on the recording
-   * screen (one unlabeled "Set up" per card): which of them the target was.
-   * Replay honors it only when the live screen shows exactly as many, so a
-   * twin that appeared or vanished still diverges instead of guessing.
-   * Explicit first/last intent uses `ordinal` instead of this counted place.
-   */
+  /** Counted place among matching controls, including anonymous singletons; replay requires the same count so new or missing twins diverge. Explicit first/last intent uses ordinal instead. */
   readonly position?: TracePosition;
   /** Explicit first/last intent among observed matches of the test id and role. */
   readonly ordinal?: 'first' | 'last';

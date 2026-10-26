@@ -80,8 +80,8 @@ its name and purpose only. Before the runner fills it, it checks the field
 the model picked: an enabled editable input, and a password field for a
 password. `locator.fill` runs no such check, since your code chose the field.
 
-Use `position` when a repeated control means its current first or last
-match, even after rows change. Name its test id explicitly:
+Use `position` to follow a named control's first or last match as its list
+changes; other controls keep normal matching:
 
 ```ts
 await agent.act('open the first inbox item', {
@@ -89,9 +89,8 @@ await agent.act('open the first inbox item', {
 });
 ```
 
-Recordings follow the first or last match as the list changes. Unloaded or
-virtualized rows absent from the observation do not count; use different
-test ids for independent lists.
+This requires a complete observation; unloaded or virtualized rows outside
+it do not count. Use different test ids for independent lists.
 
 `onAction` runs after each action the step completes, once the screen
 settles, and before the next action. That includes actions the

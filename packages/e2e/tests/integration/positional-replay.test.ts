@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ActPosition, StepExecutor, StepExecutorContext } from '../../src/index.ts';
@@ -20,6 +20,23 @@ test('${TITLE}', async ({ app, agent, screen }) => {
 });`;
 }
 
+/** Capture synchronous input effects before an intentionally failed step closes its page. */
+function pointSource(): string {
+  return `import { test } from '@e2e-dev/web';
+import { writeFileSync } from 'node:fs';
+test('${TITLE}', async ({ app, agent, browser }) => {
+  await app.open();
+  try {
+    await agent.act('open the first inbox item', { position: { testId: 'inbox-item', at: 'first' } });
+  } finally {
+    const effects = await browser.evaluate(() => ({
+      selected: Reflect.get(window, 'pointSelected'), hovered: Reflect.get(window, 'pointHovered'),
+    }));
+    writeFileSync(new URL('../point-input.json', import.meta.url), JSON.stringify(effects));
+  }
+});`;
+}
+
 /** The agent step's replay result, separate from the subsequent live assertion. */
 function cacheInfo(outcome: RunOutcome) {
   return resultByTitle(outcome, TITLE).attempts.at(-1)!.steps.find((step) => step.api === 'agent.act')!.cache;
@@ -32,17 +49,11 @@ describe('explicit positional replay through the built runner', () => {
   let selected: string | undefined;
   let showTitle = false;
   let trackPoints = false;
-  let hovered: string | undefined;
   let remount: 'hover' | 'prepare' | undefined;
   let replacementItems = ['Gamma', 'Delta', 'Epsilon'];
 
   beforeAll(async () => {
     server = createServer((request, response) => {
-      if (request.url?.startsWith('/hovered?') === true) {
-        hovered = new URL(request.url, 'http://fixture.test').searchParams.get('title')!;
-        response.end('ok');
-        return;
-      }
       if (request.url?.startsWith('/selected?') === true) {
         selected = new URL(request.url, 'http://fixture.test').searchParams.get('title')!;
         response.end('ok');
@@ -69,10 +80,11 @@ describe('explicit positional replay through the built runner', () => {
         document.querySelector('[data-testid="card"]').ondragstart = (event) => event.dataTransfer.setData('text/plain', 'card');
         function bindRows() { document.querySelectorAll('[data-testid="inbox-item"]').forEach((row) => {
           if (${JSON.stringify(remount)} === 'hover') row.onpointerenter = remountRows;
-          else if (${JSON.stringify(trackPoints)}) row.onpointerenter = () => fetch('/hovered?title=' + encodeURIComponent(row.dataset.title));
+          else if (${JSON.stringify(trackPoints)}) row.onpointerenter = () => { window.pointHovered = row.dataset.title; };
           row.ondragover = (event) => event.preventDefault();
           row.onclick = row.ondrop = async (event) => {
           event.preventDefault();
+          if (${JSON.stringify(trackPoints)}) window.pointSelected = row.dataset.title;
           await fetch('/selected?title=' + encodeURIComponent(row.dataset.title));
           document.querySelector('ul').remove();
           document.querySelector('[role="status"]').textContent = ${showTitle ? "'Opened ' + row.dataset.title" : "'Opened'"};
@@ -321,7 +333,7 @@ describe('explicit positional replay through the built runner', () => {
   }, 45_000);
 
   it.each([['tapAt', false], ['hoverAt', false], ['tapAt', true], ['hoverAt', true]] as const)('validates the edge before %s sends point input (truncated=%s)', async (verb, truncated) => {
-    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at: 'first' }) });
+    const project = createProject({ [FILE]: pointSource() });
     const brain: StepExecutor = {
       name: 'wrong-point',
       async runStep(context) {
@@ -343,12 +355,10 @@ describe('explicit positional replay through the built runner', () => {
     try {
       items = truncated ? Array.from({ length: 60 }, (_, index) => `Message ${index}`) : ['Alpha', 'Beta'];
       trackPoints = true;
-      hovered = undefined;
       const outcome = await run(project, brain, false, truncated ? 1_024 : undefined);
       expect(outcome.exitCode).not.toBe(0);
       expect(resultByTitle(outcome, TITLE).attempts.at(-1)!.error?.code).toBe(truncated ? 'POLICY_DENIED' : 'ACTION_FAILED');
-      expect(selected).toBeUndefined();
-      expect(hovered).toBeUndefined();
+      expect(JSON.parse(readFileSync(path.join(project.dir, 'point-input.json'), 'utf8'))).toEqual({});
       expect(readEntries(project)).toHaveLength(0);
     } finally {
       trackPoints = false;
