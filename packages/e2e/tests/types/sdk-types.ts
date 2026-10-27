@@ -543,6 +543,19 @@ await agent.act('open a row', { position: 'first' });
 await agent.act('open a row', { position: { testId: 'row', at: 'middle' } });
 // @ts-expect-error positional intent cannot be applied to every target implicitly
 await agent.act('open a row', { position: { at: 'first' } });
+
+await agent.act('open billing', { onBeforeAction: async event => {
+  event.index satisfies number;
+  event.source satisfies 'model' | 'replay';
+  // @ts-expect-error before dispatch has no committed summary
+  event.summary;
+  // @ts-expect-error no engine target or geometry is exposed
+  event.target;
+} });
+// @ts-expect-error the observer is a function
+await agent.act('open billing', { onBeforeAction: true });
+// @ts-expect-error assertions have no before-action observer
+await agent.assert('ready', { onBeforeAction: () => undefined });
 actResult.summary satisfies string;
 actResult.modelCalls satisfies number;
 // @ts-expect-error act returns no data; extract does

@@ -10,12 +10,20 @@ import { assertValidReport } from '../helpers/report-schema.ts';
 const FILE = 'tests/inbox.e2e.ts';
 const TITLE = 'open an inbox item';
 
-/** A constant test identity, with only the per-call positional option changing. */
-function source(position?: ActPosition, expectedStatus = 'Opened'): string {
+/** A stable test identity for positional replay and optional action observers. */
+function source(position?: ActPosition, expectedStatus = 'Opened', observeActions = false): string {
+  const observers = observeActions ? `,
+    onBeforeAction: async ({ index, source }) => {
+      await expect(screen.getByRole('status')).toHaveText(index === 1 ? 'Waiting' : 'Ready');
+      await app.screenshot(\`before \${index} \${source}\`);
+    },
+    onAction: async ({ index }) => {
+      await expect(screen.getByRole('status')).toHaveText(index === 1 ? 'Ready' : 'Opened');
+    }` : '';
   return `import { test, expect } from 'e2e';
 test('${TITLE}', async ({ app, agent, screen }) => {
   await app.open();
-  await agent.act('prepare the inbox and open an item', ${JSON.stringify(position === undefined ? {} : { position })});
+  await agent.act('prepare the inbox and open an item', { ...${JSON.stringify(position === undefined ? {} : { position })}${observers} });
   await expect(screen.getByRole('status')).toHaveText(${JSON.stringify(expectedStatus)});
 });`;
 }
@@ -155,10 +163,14 @@ describe('explicit positional replay through the built runner', () => {
   it.each(['first', 'last'] as const)('records and replays %s across list changes without invoking the executor', async (at) => {
     const calls = { count: 0 };
     const brain = executor(at, calls);
-    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at }) });
+    const project = createProject({ [FILE]: source({ testId: 'inbox-item', at }, 'Opened', true) });
+    const captures = (outcome: RunOutcome) => resultByTitle(outcome, TITLE).attempts.at(-1)!.steps
+      .filter(step => step.api === 'app.screenshot').map(step => step.label);
     try {
       items = ['Alpha', 'Beta'];
-      expect((await run(project, brain)).exitCode).toBe(0);
+      const recorded = await run(project, brain);
+      expect(recorded.exitCode).toBe(0);
+      expect(captures(recorded)).toEqual(['before 1 model', 'before 2 model']);
       expect(calls.count).toBe(1);
       const [recording] = readEntries(project);
       expect(recording!.entry.payload.actions).toMatchObject([
@@ -171,6 +183,7 @@ describe('explicit positional replay through the built runner', () => {
         items = next;
         const replay = await run(project, brain, true);
         expect(replay.exitCode).toBe(0);
+        expect(captures(replay)).toEqual(['before 1 replay', 'before 2 replay']);
         expect(cacheInfo(replay)).toMatchObject({ mode: 'self-finalized', replayedActions: 2 });
         expect(selected).toBe(at === 'first' ? next[0] : next.at(-1));
         expect(calls.count).toBe(1);
